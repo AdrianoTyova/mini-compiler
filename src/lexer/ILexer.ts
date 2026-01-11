@@ -2,10 +2,11 @@
  * Tipos de tokens suportados pela linguagem.
  */
 enum TokenType {
-  NUMBER = "NUMBER", // Números inteiros
   VAR = "VAR", // Palavra-chave 'VAR'
   EXIBIR = "EXIBIR", // Palavra-chave 'EXIBIR'
-  ATRIBUICAO = "ATRIBUICAO", // Operador de atribuição '='
+  
+
+  // Operadoes aritmeticos
   MENOS = "MENOS", // Operador de subtração '-'
   DIVISAO = "DIVISAO", // Operador de divisão '/'
   MULTIPLICACAO = "MULTIPLICACAO", // Operador de MULTIPLICACAO '*'
@@ -21,7 +22,7 @@ enum TokenType {
   CARACTER = "CARACTER", // Tipo de dado caracter (char)
   BOOLEANO = "BOOLEANO", // Tipo de dado booleano (verdadeiro/falso)
   LOGICO = "LOGICO", // Tipo de dado lógico (verdadeiro/falso)
-
+  
   // Delimitadores
   PARENTES_ESESQUERDO = "PARENTES_ESESQUERDO", // Parênteses esquerdo '('
   PARENTES_EDIREITO = "PARENTES_EDIREITO", // Parênteses direito ')'
@@ -33,18 +34,23 @@ enum TokenType {
   DOIS_PONTOS = "DOIS_PONTOS", // Dois semicolons ':'
   SEMICOLON = "SEMICOLON", // SEMICOLON '.'
   PONTO_VIRGUAL = "PONTO_VIRGUAL", // SEMICOLON e vírgula ';'
+  
+  //   Operadores de comparação
   MAIOR_QUE = "MAIOR_QUE", // Maior que '>'
   MENOR_QUE = "MENOR_QUE", // Menor que '<'
   IGUALDADE = "IGUALDADE", // Igualdade '=='
   DIFERENTE = "DIFERENTE", // Diferente '!='
+
+//   Operador de atribuição
+  ATRIBUICAO = "ATRIBUICAO", // Operador de atribuição '='
 }
 
 /**
  * Estrutura de um Token.
- */
+*/
 interface Token {
-  type: TokenType; // O tipo do token
-  value: string; // O valor textual do token
+    type: TokenType; // O tipo do token
+    value: string; // O valor textual do token
 }
 
 export { Token, TokenType };
