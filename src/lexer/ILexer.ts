@@ -51,6 +51,8 @@ enum TokenType {
 interface Token {
     type: TokenType; // O tipo do token
     value: string; // O valor textual do token
+    linha: number; // A linha do token
+    coluna: number; // A coluna do token
 }
 
 export { Token, TokenType };
