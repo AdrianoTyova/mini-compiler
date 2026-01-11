@@ -1,41 +1,64 @@
 # Validações do Mini-Compilador
 
-Este documento lista todas as validações de erro implementadas no sistema, divididas por módulo (Lexer, Parser, Semantic Analyzer).
+Abaixo estão listadas as validações de erro do sistema, organizadas por etapa de compilação.
 
 ## 1. Analisador Léxico (Lexer)
-Responsável por transformar o código em tokens. Verifica a validade dos caracteres e formação de palavras.
+*Erros encontrados durante a leitura dos caracteres e formação das palavras.*
 
-| Erro | Descrição | Exemplo |
-|---|---|---|
-| **Caractere inválido** | Ocorre quando um caractere não reconhecido é encontrado. | `@` |
-| **Número real inválido** | 1. Ocorre quando um número real tem múltiplas vírgulas.<br>2. Ocorre quando um número termina com vírgula ou ponto. | `12.3.4`<br>`12.` |
-| **Identificador inválido** | Ocorre quando um identificador começa com um número. | `12nome` |
-| **Palavra reservada inválida** | Ocorre quando um identificador começa com uma palavra reservada (ex: typos). | `VARc`, `REALx` |
-| **String não terminada** | Ocorre quando uma string abre aspas mas não fecha antes do fim da linha ou arquivo. | `"Ola mundo` |
+*   **Caractere Inválido**
+    *   **Descrição:** O compilador encontrou um símbolo que não pertence à linguagem.
+    *   **Exemplo:** `@`, `#`
 
-> **Nota:** Todos os erros do Lexer exibem o arquivo, linha, coluna e o contexto do erro com formatação colorida.
+*   **Número Real Inválido**
+    *   **Descrição:** Números com erros de formatação, como múltiplas vírgulas/pontos ou terminando com separador decimal.
+    *   **Exemplo:** `10.5.2` ou `12.`
+
+*   **Identificador Inválido**
+    *   **Descrição:** Nomes de variáveis que começam com números.
+    *   **Exemplo:** `12nome`
+
+*   **Palavra Reservada Inválida**
+    *   **Descrição:** Tentativa de criar um identificador que começa com uma palavra reservada (provável erro de digitação).
+    *   **Exemplo:** `VARc`, `REALx`
+
+*   **String Não Terminada**
+    *   **Descrição:** Uma string foi aberta com aspas `"` mas a linha ou arquivo terminou antes de fechar.
+    *   **Exemplo:** `"Texto sem fim`
 
 ---
 
 ## 2. Analisador Sintático (Parser)
-Responsável por verificar a estrutura gramatical do código.
+*Erros na estrutura e gramática das frases.*
 
-| Erro | Descrição | Exemplo |
-|---|---|---|
-| **Erro sintático** | Ocorre quando um token inesperado é encontrado (esperava X, recebeu Y). | `esperado :, encontrado ;` |
-| **Factor inválido** | Ocorre quando uma expressão contém um elemento que não é número, identificador ou operador unário. | `VAR x = * 2` |
-| **Tipo de variável inválido** | Ocorre na declaração de variáveis, se o tipo não for `INTEIRO`, `REAL` ou `NATURAL`. | `VAR x = 1 : TEXTO.` (se TEXTO não for suportado no parser) |
-| **Comando inválido** | Ocorre se uma instrução não começar com palavras-chave válidas (`VAR`, `EXIBIR`). | `x = 10` (atribuição sem VAR) |
+*   **Erro Sintático**
+    *   **Descrição:** A ordem dos tokens está incorreta (ex: esperava dois pontos, veio um ponto e vírgula).
+    *   **Exemplo:** `esperado :, encontrado ;`
+
+*   **Comando Inválido**
+    *   **Descrição:** Uma instrução começou com algo que não é um comando válido (como `VAR` ou `EXIBIR`).
+    *   **Exemplo:** Começar a linha direto com `x = 10` sem declarar.
+
+*   **Tipo de Variável Inválido**
+    *   **Descrição:** Declaração de variável com um tipo desconhecido.
+    *   **Exemplo:** `VAR x = 1 : COISA.`
 
 ---
 
 ## 3. Analisador Semântico (Semantic)
-Responsável por verificar a lógica e tipos durante a execução.
+*Erros de lógica e tipos durante a execução.*
 
-| Erro | Descrição | Exemplo |
-|---|---|---|
-| **Erro semântico (INTEIRO)** | Ocorre ao tentar atribuir um valor decimal a uma variável `INTEIRO`. | `VAR x = 3.5 : INTEIRO.` |
-| **Erro semântico (NATURAL)** | Ocorre ao tentar atribuir um valor decimal ou negativo a uma variável `NATURAL`. | `VAR x = -1 : NATURAL.` |
-| **Variável não declarada** | Ocorre ao tentar usar uma variável que não foi definida anteriormente. | `EXIBIR(y).` (sem declarar y) |
-| **Divisão por zero** | Ocorre em operações de divisão onde o divisor é 0. | `10 / 0` |
-| **Operador desconhecido** | Erro interno caso um operador não mapeado apareça na AST. | - |
+*   **Incompatibilidade de Tipo (INTEIRO)**
+    *   **Descrição:** Tentar colocar um número decimal em uma variável `INTEIRO`.
+    *   **Exemplo:** `VAR x = 3.5 : INTEIRO.`
+
+*   **Incompatibilidade de Tipo (NATURAL)**
+    *   **Descrição:** Tentar colocar número negativo ou decimal em variável `NATURAL`.
+    *   **Exemplo:** `VAR x = -5 : NATURAL.`
+
+*   **Variável Não Declarada**
+    *   **Descrição:** Tentar usar ou exibir uma variável que não existe.
+    *   **Exemplo:** `EXIBIR(y).` (sem `VAR y` antes)
+
+*   **Divisão por Zero**
+    *   **Descrição:** Operação matemática proibida.
+    *   **Exemplo:** `10 / 0`
