@@ -110,7 +110,17 @@ class Lexer {
 
                 while (isNumber.test(this.peek()) || this.peek() === ",") {
                     if (this.peek() === ",") {
-                        if (isReal) throw new Error(`Número real inválido, na linha ${this.linha}, coluna ${this.coluna}`);
+                        if (isReal) {
+                            throw new Error(
+                                `\x1b[31m========================================\x1b[0m
+\x1b[31m[ERRO] Número real inválido\x1b[0m
+\x1b[31m========================================\x1b[0m
+\x1b[1mDetalhes:\x1b[0m
+  - \x1b[36mLinha:\x1b[0m \x1b[33m${this.linha}\x1b[0m
+  - \x1b[36mColuna:\x1b[0m \x1b[33m${this.coluna}\x1b[0m
+  - \x1b[36mContexto:\x1b[0m Próximo do identificador '\x1b[33m${num}\x1b[0m'`
+                            );
+                        }
                         isReal = true;
                         num += ".";
                         this.advance();
@@ -123,7 +133,7 @@ class Lexer {
                 return {
                     type: isReal ? TokenType.REAL : TokenType.INTEIRO,
                     value: num,
-                    linha: tokenInicioLinha, 
+                    linha: tokenInicioLinha,
                     coluna: tokenInicioColuna
                 };
             }
