@@ -108,10 +108,20 @@ class Lexer {
         };
       }
 
+      if (char === "=") {
+        this.advance();
+        return {
+          type: TokenType.ATRIBUICAO,
+          value: "=",
+          linha: tokenInicioLinha,
+          coluna: tokenInicioColuna,
+        };
+      }
+
       if (char === ".") {
         this.advance();
         return {
-          type: TokenType.PONTO,
+          type: TokenType.SEMICOLON,
           value: ".",
           linha: tokenInicioLinha,
           coluna: tokenInicioColuna,
@@ -168,6 +178,7 @@ class Lexer {
 
       // Operadores de comparação
 
+      
       if (char === "=" && this.peekNext() === "=") {
         this.advance();
         this.advance();
@@ -212,7 +223,9 @@ class Lexer {
         };
       }
 
-      if (char === "<") {
+
+
+       if (char === "<") {
         this.advance();
         return {
           type: TokenType.MENOR_QUE,
@@ -222,7 +235,7 @@ class Lexer {
         };
       }
 
-      if (char === ">") {
+       if (char === ">") {
         this.advance();
         return {
           type: TokenType.MAIOR_QUE,
@@ -232,15 +245,6 @@ class Lexer {
         };
       }
 
-      if (char === "=") {
-        this.advance();
-        return {
-          type: TokenType.ATRIBUICAO,
-          value: "=",
-          linha: tokenInicioLinha,
-          coluna: tokenInicioColuna,
-        };
-      }
 
       // Capturar textos entre aspas duplas
 
