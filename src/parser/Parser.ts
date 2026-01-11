@@ -102,10 +102,10 @@ class Parser {
         }
 
         // Caso: expressão entre parênteses
-        if (token.type === TokenType.PARENTES_ESQUERDO) {
-            this.eat(TokenType.PARENTES_ESQUERDO);
+        if (token.type === TokenType.PARENTESE_ESQUERDO) {
+            this.eat(TokenType.PARENTESE_ESQUERDO);
             const node = this.expr(); // avalia a expressão interna
-            this.eat(TokenType.PARENTES_DIREITO);
+            this.eat(TokenType.PARENTESE_DIREITO);
             return node;
         }
 
