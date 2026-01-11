@@ -285,9 +285,7 @@ class Parser {
       this.eat(TokenType.PARENTESE_DIREITO);
       this.eat(TokenType.CHAVE_ESQUERDA);
 
-      this.eat(TokenType.CHAVE_ESQUERDA);
       const trueBranch = this.block();
-      this.eat(TokenType.CHAVE_DIREITA);
       this.eat(TokenType.CHAVE_DIREITA);
 
       return {
