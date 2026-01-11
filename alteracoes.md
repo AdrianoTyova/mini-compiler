@@ -60,10 +60,17 @@ aproximar de linguagens modernas e preparar o compilador para
 ## 3. Parser
 
 ### Alterações na Sintaxe
-- Adiconada validação de tipos de de dados para:
-    1. NATURAL não pode ser negativo
-    2. TEXTO dêve estar entre aspas duplas
-    3. LOGICO dêve ser apenas do tipo VERDADEIRO ou FALSO
+- Adicionada validação de tipos de dados no Parser (análise sintática):
+    1. **NATURAL** não pode ser negativo (detecta literais com sinal `-`)
+    2. **TEXTO** deve receber string entre aspas duplas (`"..."`)
+    3. **LOGICO** deve receber apenas `VERDADEIRO` ou `FALSO`
+
+### Melhorias de Mensagens de Erro
+- **Formatação Rica de Erros:** O Parser agora exibe erros formatados com cores ANSI, incluindo:
+  - Arquivo, Linha e Coluna do erro
+  - Contexto detalhado com informações sobre o problema
+  - Sugestões de valores/tipos válidos
+  - Mesma qualidade visual dos erros do Lexer
 
 
 ### Exemplos:

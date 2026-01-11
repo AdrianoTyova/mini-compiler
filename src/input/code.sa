@@ -1,6 +1,1 @@
-VAR nome = "Ana" : TEXTO.
-VAR idade = 25 : NATURAL.
-VAR ativo = VERDADEIRO : LOGICO.
-EXIBIR(nome).
-EXIBIR(idade).
-EXIBIR(ativo).
+VAR erro = 123 : TEXTO.
