@@ -320,7 +320,7 @@ class Parser {
    * Por enquanto aceita apenas literais booleanos ou identificadores
    */
   private logicalExpr(): ASTNode {
-    let left = this.expr();
+    let left = this.factor(); // trocar expr() por factor()
 
     if (
       this.currentToken.type === TokenType.IGUALDADE ||
@@ -333,7 +333,7 @@ class Parser {
       const operatorToken = this.currentToken;
       this.eat(operatorToken.type);
 
-      const right = this.expr();
+      const right = this.factor(); // idem, usar factor()
 
       return {
         type: "LogicalExpression",

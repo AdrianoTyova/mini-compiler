@@ -98,6 +98,43 @@ class SemanticAnalyzer {
       case "BooleanLiteral":
         return node.value;
 
+      //
+
+      case "IfStatement": {
+        const cond = this.visit(node.condition);
+
+        if (typeof cond !== "boolean") {
+          throw new Error("Condição do SE deve ser lógica");
+        }
+
+        if (cond) {
+          node.trueBranch.forEach((stmt: ASTNode) => this.visit(stmt));
+        }
+
+        break;
+      }
+
+      case "LogicalExpression":
+        const l = this.visit(node.left);
+        const r = this.visit(node.right);
+
+        switch (node.operator) {
+          case "==":
+            return l === r;
+          case "!=":
+            return l !== r;
+          case ">":
+            return l > r;
+          case "<":
+            return l < r;
+          case ">=":
+            return l >= r;
+          case "<=":
+            return l <= r;
+
+            
+        }
+
       // Identificador
       case "IDENTIFICADOR":
         const symbol = this.simbols[node.name];

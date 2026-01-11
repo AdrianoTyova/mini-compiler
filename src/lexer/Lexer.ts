@@ -108,16 +108,6 @@ class Lexer {
         };
       }
 
-      if (char === "=") {
-        this.advance();
-        return {
-          type: TokenType.ATRIBUICAO,
-          value: "=",
-          linha: tokenInicioLinha,
-          coluna: tokenInicioColuna,
-        };
-      }
-
       if (char === ".") {
         this.advance();
         return {
@@ -237,6 +227,16 @@ class Lexer {
         return {
           type: TokenType.MAIOR_QUE,
           value: ">",
+          linha: tokenInicioLinha,
+          coluna: tokenInicioColuna,
+        };
+      }
+
+      if (char === "=") {
+        this.advance();
+        return {
+          type: TokenType.ATRIBUICAO,
+          value: "=",
           linha: tokenInicioLinha,
           coluna: tokenInicioColuna,
         };
