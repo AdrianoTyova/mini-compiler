@@ -149,7 +149,57 @@ window.onload = () => {
 
     // Configura o botão de executar
     const btnCompilar = document.getElementById("compilar");
+    const btnAbrir = document.getElementById("abrir-arquivo");
+    const btnSalvar = document.getElementById("salvar-arquivo");
+    const btnSalvarComo = document.getElementById("salvar-como");
     const saidaDiv = document.getElementById("saida");
+
+    let currentFilePath = null; // Estado do arquivo atual
+
+    if (btnAbrir) {
+        btnAbrir.addEventListener("click", async () => {
+            if (window.api && window.api.openFile) {
+                // Ao abrir, não recebemos o path do backend no metodo atual (apenas content), 
+                // ideal seria retornar { content, filePath }. 
+                // P.S: O backend retorna só content no momento. 
+                // CORREÇÃO RÁPIDA: Vamos alterar o backend depois ou assumir null por enquanto?
+                // MELHOR: Vamos alterar o renderer para lidar com o que temos ou o usuário pede.
+                // Como não alterei o retorno do OpenFile no backend pra trazer o path,
+                // vou assumir que "Abrir" por enquanto só lê o conteúdo.
+                // *Nota Mental*: Idealmente o `dialog:openFile` deveria retornar obj, não string.
+
+                // Vamos tentar salvar "Como" se não soubermos o path.
+                const result = await window.api.openFile();
+
+                if (result && result.content !== undefined) {
+                    textArea.value = result.content;
+                    updateHighlight(result.content);
+                    currentFilePath = result.filePath; // Path recuperado do backend
+                    document.title = `Pamdu-Ali | ${currentFilePath}`; // Atualiza título da janela
+                }
+            }
+        });
+    }
+
+    const handleSave = async (asNew) => {
+        if (window.api && window.api.saveFile) {
+            const content = textArea.value;
+            const pathInfo = await window.api.saveFile(content, asNew ? null : currentFilePath);
+            if (pathInfo) {
+                currentFilePath = pathInfo;
+                // Feedback visual simples
+                alert(`Arquivo salvo com sucesso!\n${pathInfo}`); // Simples alert para feedback imediato
+            }
+        }
+    };
+
+    if (btnSalvar) {
+        btnSalvar.addEventListener("click", () => handleSave(false));
+    }
+
+    if (btnSalvarComo) {
+        btnSalvarComo.addEventListener("click", () => handleSave(true));
+    }
 
     if (btnCompilar) {
         btnCompilar.addEventListener("click", async () => {
@@ -274,4 +324,32 @@ window.onload = () => {
             inputEl.addEventListener("keydown", handleEnter);
         });
     }
+
+    // --- Atalhos de Teclado ---
+    document.addEventListener("keydown", (e) => {
+        // Ctrl + S: Salvar
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+            e.preventDefault();
+            if (e.shiftKey) {
+                // Ctrl + Shift + S: Salvar Como
+                if (btnSalvarComo) btnSalvarComo.click();
+            } else {
+                // Ctrl + S: Salvar
+                if (btnSalvar) btnSalvar.click();
+            }
+        }
+
+        // Ctrl + O: Abrir
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'o') {
+            e.preventDefault();
+            if (btnAbrir) btnAbrir.click();
+        }
+
+        // F5: Compilar/Executar
+        // (Nota: F5 geralmente recarrega a página em browsers, prevenimos isso aqui)
+        if (e.key === 'F5') {
+            e.preventDefault();
+            if (btnCompilar) btnCompilar.click();
+        }
+    });
 };

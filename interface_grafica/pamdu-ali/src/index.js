@@ -1,5 +1,6 @@
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('node:path');
+const fs = require('fs/promises'); // Para leitura de arquivos
 
 // 🔥 HOT RELOAD
 require('electron-reload')(__dirname, {
@@ -23,7 +24,7 @@ const createWindow = () => {
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
 
   // DevTools
-  mainWindow.webContents.openDevTools();
+  // mainWindow.webContents.openDevTools();
 };
 
 app.whenReady().then(() => {
@@ -43,7 +44,7 @@ app.on('window-all-closed', () => {
 });
 
 // IPC handler
-const { ipcMain } = require('electron');
+// ipcMain já foi importado no topo
 const compilerApi = require('../../../dist/api');
 
 ipcMain.handle('compile-code', async (event, sourceCode) => {
@@ -72,5 +73,55 @@ ipcMain.handle('compile-code', async (event, sourceCode) => {
   } catch (error) {
     console.error("Erro na compilação:", error);
     return { output: [], errors: [error.message] };
+  }
+});
+
+// --- Handler para Abrir Arquivo ---
+ipcMain.handle('dialog:openFile', async () => {
+  const { canceled, filePaths } = await dialog.showOpenDialog({
+    properties: ['openFile'],
+    filters: [
+      { name: 'SeteAO Files', extensions: ['sa', 'txt'] },
+      { name: 'All Files', extensions: ['*'] }
+    ]
+  });
+
+  if (canceled) {
+    return null;
+  } else {
+    try {
+      const content = await fs.readFile(filePaths[0], 'utf-8');
+      return { content, filePath: filePaths[0] };
+    } catch (e) {
+      console.error("Erro ao ler arquivo:", e);
+      return null;
+    }
+  }
+});
+
+// --- Handler para Salvar Arquivo ---
+ipcMain.handle('dialog:saveFile', async (event, { content, filePath }) => {
+  // Se não tem caminho (Salvar Como ou Primeiro Salvar), abre diálogo
+  if (!filePath) {
+    const { canceled, filePath: newPath } = await dialog.showSaveDialog({
+      title: 'Salvar Arquivo',
+      defaultPath: 'meu_codigo.sa',
+      filters: [
+        { name: 'SeteAO Files', extensions: ['sa', 'txt'] },
+        { name: 'All Files', extensions: ['*'] }
+      ]
+    });
+
+    if (canceled) return null;
+    filePath = newPath;
+  }
+
+  // Salva o conteúdo no disco
+  try {
+    await fs.writeFile(filePath, content, 'utf-8');
+    return filePath; // Retorna o caminho para o frontend atualizar o estado
+  } catch (e) {
+    console.error("Erro ao salvar arquivo:", e);
+    return null;
   }
 });
