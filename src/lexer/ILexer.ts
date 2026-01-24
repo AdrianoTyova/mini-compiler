@@ -15,6 +15,7 @@ enum TokenType {
   DIVISAO = "DIVISAO", // Operador de divisão '/'
   MULTIPLICACAO = "MULTIPLICACAO", // Operador de MULTIPLICACAO '*'
   MAIS = "MAIS", // Operador de adição '+'
+  BARRA = "BARRA", // Barra '/'
   IDENTIFICADOR = "IDENTIFICADOR", // Identificadores (nomes de variáveis)
   EOF = "EOF", // Fim do arquivo (End Of File)
 
@@ -23,7 +24,7 @@ enum TokenType {
   NATURAL = "NATURAL", // Tipo de dado natural (não negativo)
   REAL = "REAL", // Tipo de dado real (PONTO flutuante)
   TEXTO = "TEXTO", // Tipo de dado texto (string)
-
+  LISTA = "LISTA", // Tipo de dado lista (array)
   CARACTER = "CARACTER", // Tipo de dado caracter (char)
 
   // lOGICOS
@@ -40,7 +41,7 @@ enum TokenType {
   ENQUANTO = "ENQUANTO", // Palavra-chave 'ENQUANTO'
   FACA = "FACA", // Palavra-chave 'FACA'
   PARA = "PARA", // Palavra-chave 'PARA'
-  
+
 
   // Delimitadores
   PARENTESE_ESQUERDO = "PARENTE_ESQUERDO", // Parênteses esquerdo '('
@@ -69,6 +70,10 @@ enum TokenType {
 
   //   Operador de atribuição
   ATRIBUICAO = "ATRIBUICAO", // Operador de atribuição '='
+  MAIS_IGUAL = "MAIS_IGUAL", // '+='
+  MENOS_IGUAL = "MENOS_IGUAL", // '-='
+  INCREMENTO = "INCREMENTO", // '++'
+  DECREMENTO = "DECREMENTO", // '--'
 
 
   // Novos operadores matemáticos
@@ -79,6 +84,11 @@ enum TokenType {
   // Comandos de controle de fluxo
   CONTINUAR = "CONTINUAR", // Palavra-chave 'CONTINUAR'
   PARAR = "PARAR", // Palavra-chave 'PARAR'
+
+  //POO
+  PUBLICO = "PUBLICO",
+  PRIVADO = "PRIVADO",
+  PROTEGIDO = "PROTEGIDO",
 }
 
 

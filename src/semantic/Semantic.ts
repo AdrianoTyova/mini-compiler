@@ -1,25 +1,104 @@
 import ASTNode from "../parser/IParser";
 import readlineSync from "readline-sync";
 import { execSync } from "child_process";
+import { error } from "console";
 
 interface Symbol {
+  name: string,
   value: number | string | boolean;
   type: "INTEIRO" | "REAL" | "NATURAL" | "TEXTO" | "LOGICO";
 }
 
+
+class Scope {
+  private symbols = new Map<string, Symbol>();
+  add(symbol: Symbol): void {
+    if (this.symbols.has(symbol.name)) {
+      throw new Error(`'${symbol.name}' a variável já foi declarada neste escopo`);
+    }
+    this.symbols.set(symbol.name, symbol);
+  }
+  lookup(name: string): Symbol | undefined {
+    return this.symbols.get(name);
+  }
+  //Remover escopo ao sair
+  remove(name: string): boolean {
+    return this.symbols.delete(name);
+  }
+}
 /**
  * O SemanticAnalyzer percorre a AST para validar semântica e executar os comandos.
  * Ele mantém uma tabela de símbolos para armazenar valores e tipos das variáveis.
  */
 
-class BreakSignal {}
-class ContinueSignal {}
+class BreakSignal { }
+class ContinueSignal { }
+class errorSemantic extends Error {
+  constructor(
+    public typeError: string,
+    public details: string,
+    public node: ASTNode
+  ) {
+    super(details);
+  }
+}
 
 class SemanticAnalyzer {
-  private simbols: Record<string, Symbol> = {};
+  // private simbols: Record<string, Symbol> = {};
   private filename: string;
   private printCallback: (message: string) => void;
   private inputCallback: (prompt: string) => Promise<string>;
+
+  private stackScopes: Scope[] = [];
+  private classeRecente?: string;
+  private recenteParentClasse?: string;
+  private symbolDeclared = new Set<string>();
+  private webOutput: string = "";
+
+  public getWebOutput(): string {
+    return this.webOutput;
+  }
+
+  private currentScope(): Scope {
+    if (this.stackScopes.length === 0) {
+      throw new Error('Erro: pilha de escopos vazia.')
+    }
+    return this.stackScopes[this.stackScopes.length - 1]!;
+
+  }
+
+  //Entrar em um novo escopo
+  private enterScope() {
+    this.stackScopes.push(new Scope());
+  }
+  //Sair do escopo actual
+  private outScope() {
+    this.stackScopes.pop();
+  }
+
+  // private symbolExistOutScope(name:string): boolean{
+  //   return this.stackScopes.some(scope => scope.lookup(name) !== undefined);
+  // }
+  private symbolExistOutScope(name: string): boolean {
+    for (let i = this.stackScopes.length - 2; i >= 0; i--) {
+      if (this.stackScopes[i]!.lookup(name)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private lookupSymbol(name: string, node: ASTNode): Symbol {
+    for (let i = this.stackScopes.length - 1; i >= 0; i--) {
+      const symbol = this.stackScopes[i]!.lookup(name);
+      if (symbol) return symbol;
+    }
+    if (this.symbolDeclared.has(name)) {
+      throw new errorSemantic("A váriavel está fora do escopo!", `A váriavel '${name}' foi declarada, mas não é global e sim local.`, node);
+    }
+    throw new errorSemantic("A variável não foi declarada!", `A variável '${name}' não foi declarada.`, node);
+  }
+
 
   constructor(
     filename: string = "code.sa",
@@ -73,8 +152,25 @@ class SemanticAnalyzer {
    * Executa a lista de comandos representada pela AST.
    */
   public async execute(ast: ASTNode[]) {
-    for (const node of ast) {
-      await this.visit(node);
+    this.enterScope();
+    this.webOutput = "";
+    try {
+      for (const node of ast) {
+        const result = await this.visit(node);
+        if (node.type === "WebTag" && typeof result === "string") {
+          this.webOutput += result;
+        }
+      }
+    } catch (er) {
+      if (er instanceof errorSemantic) {
+        console.error(
+          this.formatError(er.typeError, er.details, er.node)
+        );
+      } else {
+        throw er;
+      }
+    } finally {
+      this.outScope();
     }
   }
 
@@ -166,91 +262,98 @@ class SemanticAnalyzer {
             break;
         }
 
-        this.simbols[node.id] = {
-          value,
-          type: node.varType,
-        };
+        // this.simbols[node.id] = {
+        //   value,
+        //   type: node.varType,
+        // };
+        this.currentScope().add({
+          name: node.id, value, type: node.varType,
+        });
 
+        this.symbolDeclared.add(node.id);
         break;
       }
 
-      // Atribuição de valor a variável
+      // Atribuição de valor a variável ou índice
       case "Assignment": {
-        const symbol = this.simbols[node.id];
-
-        if (!symbol) {
-          throw new Error(
-            this.formatError(
-              "Variável Não Declarada",
-              `Variável '${node.id}' não foi declarada`,
-              node,
-            ),
-          );
-        }
-
+        const target = node.target;
         const newValue = await this.visit(node.value);
 
-        // Validação de tipo
-        switch (symbol.type) {
-          case "INTEIRO":
-            if (!Number.isInteger(newValue))
-              throw new Error(
-                this.formatError(
-                  "Tipo Incompatível",
-                  `Variável '${node.id}' espera INTEIRO`,
-                  node,
-                ),
-              );
-            break;
+        if (target.type === "IDENTIFICADOR" || target.type === "VAR") {
+          const id = target.type === "IDENTIFICADOR" ? target.name : target.id;
+          const symbol = this.lookupSymbol(id, node);
 
-          case "REAL":
-            if (typeof newValue !== "number")
-              throw new Error(
-                this.formatError(
-                  "Tipo Incompatível",
-                  `Variável '${node.id}' espera REAL`,
-                  node,
-                ),
-              );
-            break;
+          if (!symbol) {
+            throw new Error(this.formatError("Variável Não Declarada", `Variável '${id}' não foi declarada`, node));
+          }
 
-          case "NATURAL":
-            if (!Number.isInteger(newValue) || newValue < 0)
-              throw new Error(
-                this.formatError(
-                  "Tipo Incompatível",
-                  `Variável '${node.id}' espera NATURAL`,
-                  node,
-                ),
-              );
-            break;
+          // Validação de tipo
+          this.validateTypeCompatibility(symbol.type, newValue, id, node);
 
-          case "TEXTO":
-            if (typeof newValue !== "string")
-              throw new Error(
-                this.formatError(
-                  "Tipo Incompatível",
-                  `Variável '${node.id}' espera TEXTO`,
-                  node,
-                ),
-              );
-            break;
+          symbol.value = newValue;
+        } else if (target.type === "IndexAccess") {
+          await this.assignToIndex(target, newValue);
+        } else {
+          throw new Error(`Alvo de atribuição inválido: ${target.type}`);
+        }
+        break;
+      }
 
-          case "LOGICO":
-            if (typeof newValue !== "boolean")
-              throw new Error(
-                this.formatError(
-                  "Tipo Incompatível",
-                  `Variável '${node.id}' espera LOGICO`,
-                  node,
-                ),
-              );
-            break;
+      case "UpdateStatement": {
+        const target = node.target;
+
+        let oldValue: number;
+        let symbol: any = null;
+        let indexAccess: any = null;
+
+        if (target.type === "IDENTIFICADOR") {
+          symbol = this.lookupSymbol(target.name, node);
+          if (!symbol) {
+            throw new Error(this.formatError("Variável Não Declarada", `Variável '${target.name}' não foi declarada`, node));
+          }
+          if (symbol.type !== "INTEIRO" && symbol.type !== "REAL" && symbol.type !== "NATURAL") {
+            throw new Error(this.formatError("Erro de Tipo", `Operador '${node.operator}' só pode ser usado em tipos numéricos`, node));
+          }
+          oldValue = symbol.value as number;
+        } else if (target.type === "IndexAccess") {
+          indexAccess = await this.resolveIndexAccess(target);
+          if (typeof indexAccess.value !== "number") {
+            throw new Error(this.formatError("Erro de Tipo", `Operador '${node.operator}' só pode ser usado em valores numéricos`, node));
+          }
+          oldValue = indexAccess.value;
+        } else {
+          throw new Error(`Alvo de atualização inválido: ${target.type}`);
         }
 
-        // Atribuição segura
-        symbol.value = newValue;
+        let newValue: number;
+        switch (node.operator) {
+          case "++": newValue = oldValue + 1; break;
+          case "--": newValue = oldValue - 1; break;
+          case "+=": newValue = oldValue + (await this.visit(node.value)); break;
+          case "-=": newValue = oldValue - (await this.visit(node.value)); break;
+          default: throw new Error(`Operador desconhecido: ${node.operator}`);
+        }
+
+        if (symbol) {
+          if (symbol.type === "NATURAL" && newValue < 0) throw new Error(this.formatError("Erro de Tipo (NATURAL)", "Não pode ser negativo", node));
+          symbol.value = newValue;
+        } else {
+          indexAccess.object[indexAccess.index] = newValue;
+        }
         break;
+      }
+
+      case "ListLiteral": {
+        const elements = [];
+        for (const element of node.elements) {
+          elements.push(await this.visit(element));
+        }
+        return elements;
+      }
+
+      case "IndexAccess": {
+        const resolved = await this.resolveIndexAccess(node);
+        return resolved.value;
       }
 
       // Comando print para saida de dados
@@ -288,7 +391,7 @@ class SemanticAnalyzer {
 
       // Comando EXIBIR para entrada de dados
       case "InputStatement": {
-        const symbol = this.simbols[node.id];
+        const symbol = this.lookupSymbol(node.id, node);
 
         if (!symbol) {
           throw new Error(
@@ -372,6 +475,7 @@ class SemanticAnalyzer {
         const MAX_ITERATIONS = 10000;
 
         while (await this.visit(node.condition)) {
+          this.enterScope();
           let shouldContinue = false;
 
           try {
@@ -388,6 +492,9 @@ class SemanticAnalyzer {
             } else {
               throw signal;
             }
+          }
+          finally {
+            this.outScope();
           }
 
           iterations++;
@@ -407,43 +514,53 @@ class SemanticAnalyzer {
         let iterations = 0;
         const MAX_ITERATIONS = 10000;
 
+        this.enterScope();
+
         // Inicialização
         await this.visit(node.init);
+        try {
 
-        while (true) {
-          // Condição
-          const cond = await this.visit(node.condition);
-          if (!cond) break;
+          while (true) {
+            // Condição
+            const cond = await this.visit(node.condition);
+            if (!cond) break;
+            this.enterScope();
 
-          let shouldContinue = false;
+            // let shouldContinue = false;
 
-          try {
-            for (const stmt of node.body) {
-              await this.visit(stmt);
+            try {
+              for (const stmt of node.body) {
+                await this.visit(stmt);
+              }
+            } catch (signal) {
+              if (signal instanceof BreakSignal) {
+                break;
+              }
+
+              if (signal instanceof ContinueSignal) {
+                // shouldContinue = true;
+              } else {
+                throw signal;
+              }
             }
-          } catch (signal) {
-            if (signal instanceof BreakSignal) {
-              break;
+            finally {
+              this.outScope();
             }
 
-            if (signal instanceof ContinueSignal) {
-              shouldContinue = true;
-            } else {
-              throw signal;
+            // Incremento (SEMPRE EXECUTA)
+            await this.visit(node.increment);
+
+            iterations++;
+            if (iterations > MAX_ITERATIONS) {
+              throw new Error("Loop PARA excedeu 10000 iterações.");
             }
-          }
 
-          // Incremento (SEMPRE EXECUTA)
-          await this.visit(node.increment);
-
-          iterations++;
-          if (iterations > MAX_ITERATIONS) {
-            throw new Error("Loop PARA excedeu 10000 iterações.");
+            // if (shouldContinue) {
+            //   continue;
+            // }
           }
-
-          if (shouldContinue) {
-            continue;
-          }
+        } finally {
+          this.outScope();
         }
 
         break;
@@ -454,6 +571,7 @@ class SemanticAnalyzer {
         const MAX_ITERATIONS = 10000;
 
         do {
+          this.enterScope();
           let shouldContinue = false;
 
           try {
@@ -470,6 +588,8 @@ class SemanticAnalyzer {
             } else {
               throw signal;
             }
+          } finally {
+            this.outScope();
           }
 
           iterations++;
@@ -527,9 +647,14 @@ class SemanticAnalyzer {
           default:
             throw new Error(`Operação desconhecida: ${operation}`);
         }
-
-        return result;
+        break;
       }
+
+      case "WebTag":
+        return await this.visitWebTag(node);
+
+      case "ObjectLiteral":
+        return await this.visitObjectLiteral(node);
 
       // Valor literal
       case "NumberLiteral":
@@ -570,21 +695,43 @@ class SemanticAnalyzer {
           );
         }
 
+        // if (cond) {
+        //   // SE verdadeiro
+        //   for (const stmt of node.trueBranch) {
+        //     await this.visit(stmt);
+        //   }
+        // } else if (node.falseBranch) {
+        //   // Se Falso
+        //   if (Array.isArray(node.falseBranch)) {
+        //     for (const stmt of node.falseBranch) {
+        //       await this.visit(stmt);
+        //     }
+        //   } else {
+        //     // recursivamente visita o IfStatement (SENAO SE)
+        //     await this.visit(node.falseBranch as ASTNode);
+        //   }
+        // }
         if (cond) {
-          // SE verdadeiro
+          this.enterScope();          // inicia o escopo local
+
           for (const stmt of node.trueBranch) {
             await this.visit(stmt);
           }
-        } else if (node.falseBranch) {
-          // Se Falso
+
+          this.outScope();            //fecha o escopo
+        }
+        else if (node.falseBranch) {
+          this.enterScope();
+
           if (Array.isArray(node.falseBranch)) {
             for (const stmt of node.falseBranch) {
               await this.visit(stmt);
             }
           } else {
-            // recursivamente visita o IfStatement (SENAO SE)
-            await this.visit(node.falseBranch as ASTNode);
+            await this.visit(node.falseBranch);
           }
+
+          this.outScope();
         }
 
         break;
@@ -615,7 +762,7 @@ class SemanticAnalyzer {
 
       // Identificador
       case "IDENTIFICADOR":
-        const symbol = this.simbols[node.name];
+        const symbol = this.lookupSymbol(node.name, node);
         if (!symbol) {
           throw new Error(
             this.formatError(
@@ -632,7 +779,14 @@ class SemanticAnalyzer {
         const left = await this.visit(node.left);
         const right = await this.visit(node.right);
 
-        // Validação de tipos: ambos devem ser números
+        // Suporte para concatenação de strings com o operador '+'
+        if (node.operator === "+") {
+          if (typeof left === "string" || typeof right === "string") {
+            return String(left) + String(right);
+          }
+        }
+
+        // Validação de tipos: ambos devem ser números para outras operações aritméticas
         if (typeof left !== "number" || typeof right !== "number") {
           const type1 = this.getUserFriendlyType(left);
           const type2 = this.getUserFriendlyType(right);
@@ -669,15 +823,131 @@ class SemanticAnalyzer {
         }
 
       default:
-        throw new Error(`Nó AST desconhecido: ${node.type}`);
+        return undefined;
     }
   }
 
+  private async visitObjectLiteral(node: ASTNode): Promise<any> {
+    const obj: { [key: string]: any } = {};
+    for (const key in node.properties) {
+      obj[key] = await this.visit(node.properties[key]);
+    }
+    return obj;
+  }
+
+  private async visitWebTag(node: ASTNode): Promise<string> {
+    const tagName = this.mapTagName(node.tagName);
+    const props = node.properties ? await this.visit(node.properties) : {};
+
+    let style = "";
+    if (props.fundo) style += `background-color: ${this.cssColor(props.fundo)}; `;
+    if (props.cor) style += `color: ${this.cssColor(props.cor)}; `;
+    if (props.largura) style += `width: ${props.largura}; `;
+    if (props.altura) style += `height: ${props.altura}; `;
+    if (props.borda) style += `border: ${props.borda}; `;
+    if (props.margem) style += `margin: ${props.margem}; `;
+    if (props.padding) style += `padding: ${props.padding}; `;
+
+    if (node.tagName === "bloco") {
+      style += "display: block; ";
+      if (!props.largura) style += "width: 100%; ";
+    }
+
+    let htmlProps = "";
+    if (style) htmlProps += ` style="${style.trim()}"`;
+
+    let childrenHtml = "";
+    for (const child of node.children) {
+      const childResult = await this.visit(child);
+      if (childResult !== undefined) {
+        childrenHtml += childResult.toString();
+      }
+    }
+
+    return `<${tagName}${htmlProps}>${childrenHtml}</${tagName}>`;
+  }
+
+  private mapTagName(name: string): string {
+    const mapping: { [key: string]: string } = {
+      bloco: "div",
+      texto: "p",
+      botao: "button",
+      imagem: "img",
+      caixa: "div",
+      titulo: "h1",
+    };
+    return mapping[name] || name;
+  }
+
+  private cssColor(color: string): string {
+    const colors: { [key: string]: string } = {
+      vermelho: "red",
+      azul: "blue",
+      verde: "green",
+      amarelo: "yellow",
+      preto: "black",
+      branco: "white",
+      cinza: "gray",
+      rosa: "pink",
+      laranja: "orange",
+    };
+    return colors[color] || color;
+  }
+
   private getUserFriendlyType(value: any): string {
-    if (typeof value === "number") return "INTEIRO"; // simplifies for now, maybe distinguish later if needed
+    if (Array.isArray(value)) return "LISTA";
+    if (typeof value === "number") return "NUMERO";
     if (typeof value === "string") return "TEXTO";
     if (typeof value === "boolean") return "LOGICO";
+    if (value === null) return "NULO";
     return typeof value;
+  }
+
+  private validateTypeCompatibility(type: string, value: any, id: string, node: ASTNode) {
+    switch (type) {
+      case "INTEIRO":
+        if (!Number.isInteger(value)) throw new Error(this.formatError("Tipo Incompatível", `Variável '${id}' espera INTEIRO`, node));
+        break;
+      case "REAL":
+        if (typeof value !== "number") throw new Error(this.formatError("Tipo Incompatível", `Variável '${id}' espera REAL`, node));
+        break;
+      case "NATURAL":
+        if (!Number.isInteger(value) || value < 0) throw new Error(this.formatError("Tipo Incompatível", `Variável '${id}' espera NATURAL`, node));
+        break;
+      case "TEXTO":
+        if (typeof value !== "string") throw new Error(this.formatError("Tipo Incompatível", `Variável '${id}' espera TEXTO`, node));
+        break;
+      case "LOGICO":
+        if (typeof value !== "boolean") throw new Error(this.formatError("Tipo Incompatível", `Variável '${id}' espera LOGICO`, node));
+        break;
+      case "LISTA":
+        if (!Array.isArray(value)) throw new Error(this.formatError("Tipo Incompatível", `Variável '${id}' espera LISTA`, node));
+        break;
+    }
+  }
+
+  private async resolveIndexAccess(node: ASTNode): Promise<{ object: any, index: number, value: any }> {
+    const object = await this.visit(node.object);
+    const index = await this.visit(node.index);
+
+    if (!Array.isArray(object)) {
+      throw new Error(this.formatError("Erro de Tipo", "Tentativa de acessar índice em algo que não é uma LISTA", node));
+    }
+
+    if (!Number.isInteger(index)) {
+      throw new Error(this.formatError("Erro de Índice", "Índice deve ser um número INTEIRO", node));
+    }
+
+    if (index < 0 || index >= object.length) {
+      throw new Error(this.formatError("Erro de Índice", `Índice ${index} fora dos limites da lista (tamanho ${object.length})`, node));
+    }
+
+    return { object, index, value: object[index] };
+  }
+
+  private async assignToIndex(node: ASTNode, value: any) {
+    const resolved = await this.resolveIndexAccess(node);
+    resolved.object[resolved.index] = value;
   }
 }
 
