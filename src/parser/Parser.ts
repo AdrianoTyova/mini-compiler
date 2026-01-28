@@ -5,6 +5,8 @@ import ASTNode from "./IParser";
 class Parser {
   private lexer: Lexer;
   private currentToken: Token;
+  private functionTable: { [key: string]: { returnType: TokenType; parameters: { name: string; type: string }[] } } = {};
+  
 
   constructor(lexer: Lexer) {
     this.lexer = lexer;
@@ -101,6 +103,31 @@ class Parser {
 
   //   Verifica se o tipo da variável é compatível com o valor atribuído
   private validateVariableType(varTypeToken: Token, value: ASTNode) {
+    // Valor é uma chamada de função
+    if (value.type === "CallExpression") {
+      const func = this.functionTable[value.callee]; // busca a função declarada
+      if (!func) {
+        throw new Error(
+          this.formatError(
+            "Erro de Tipo",
+            `Função '${value.callee}' não declarada.`,
+            varTypeToken,
+          ),
+        );
+      }
+      if (func.returnType !== varTypeToken.type) {
+        throw new Error(
+          this.formatError(
+            "Erro de Tipo",
+            `Variável do tipo ${varTypeToken.type} não pode receber retorno da função '${value.callee}' do tipo ${func.returnType}`,
+            varTypeToken,
+          ),
+        );
+      }
+      return; // tudo certo
+    }
+
+    // Valor literal existente
     if (
       varTypeToken.type === TokenType.LOGICO &&
       value.type !== "BooleanLiteral"
@@ -191,6 +218,11 @@ class Parser {
     if (token.type === TokenType.PARENTESE_ESQUERDO)
       return this.parenthesizedExpr();
     if (token.type === TokenType.IDENTIFICADOR) {
+      const nextToken = this.lexer.peekNextToken(); // olhar o próximo token
+      if (nextToken.type === TokenType.PARENTESE_ESQUERDO) {
+        return this.parseCallExpression(); // chama função
+      }
+
       this.eat(TokenType.IDENTIFICADOR);
       let node: ASTNode = {
         type: "IDENTIFICADOR",
@@ -199,7 +231,6 @@ class Parser {
         coluna: token.coluna,
       };
 
-      // Acesso por índice: id[index]
       while (this.currentToken.type === TokenType.COLCHETE_ESQUERDO) {
         this.eat(TokenType.COLCHETE_ESQUERDO);
         const index = this.expr();
@@ -212,6 +243,7 @@ class Parser {
           coluna: token.coluna,
         };
       }
+
       return node;
     }
 
@@ -281,36 +313,35 @@ class Parser {
     return node;
   }
   // Expressão lógica
-private logicalExpr(): ASTNode {
-  let left = this.expr(); 
+  private logicalExpr(): ASTNode {
+    let left = this.expr();
 
-  if (
-    [
-      TokenType.IGUALDADE,
-      TokenType.DIFERENTE_DE,
-      TokenType.MAIOR_QUE,
-      TokenType.MENOR_QUE,
-      TokenType.MAIOR_OU_IGUAL,
-      TokenType.MENOR_OU_IGUAL,
-    ].includes(this.currentToken.type)
-  ) {
-    const operatorToken = this.currentToken;
-    this.eat(operatorToken.type);
-    const right = this.expr(); 
+    if (
+      [
+        TokenType.IGUALDADE,
+        TokenType.DIFERENTE_DE,
+        TokenType.MAIOR_QUE,
+        TokenType.MENOR_QUE,
+        TokenType.MAIOR_OU_IGUAL,
+        TokenType.MENOR_OU_IGUAL,
+      ].includes(this.currentToken.type)
+    ) {
+      const operatorToken = this.currentToken;
+      this.eat(operatorToken.type);
+      const right = this.expr();
 
-    return {
-      type: "LogicalExpression",
-      operator: operatorToken.value,
-      left,
-      right,
-      linha: operatorToken.linha,
-      coluna: operatorToken.coluna,
-    };
+      return {
+        type: "LogicalExpression",
+        operator: operatorToken.value,
+        left,
+        right,
+        linha: operatorToken.linha,
+        coluna: operatorToken.coluna,
+      };
+    }
+
+    return left;
   }
-
-  return left;
-}
-
 
   private logicalAnd(): ASTNode {
     let node = this.logicalExpr();
@@ -333,80 +364,237 @@ private logicalExpr(): ASTNode {
   }
 
   private logicalOr(): ASTNode {
-  let node = this.logicalAnd();
+    let node = this.logicalAnd();
 
-  while (this.currentToken.type === TokenType.OU) {
-    const operatorToken = this.currentToken;
-    this.eat(TokenType.OU);
+    while (this.currentToken.type === TokenType.OU) {
+      const operatorToken = this.currentToken;
+      this.eat(TokenType.OU);
 
-    node = {
-      type: "LogicalExpression",
-      operator: "OU",
-      left: node,
-      right: this.logicalAnd(),
-      linha: operatorToken.linha,
-      coluna: operatorToken.coluna,
-    };
+      node = {
+        type: "LogicalExpression",
+        operator: "OU",
+        left: node,
+        right: this.logicalAnd(),
+        linha: operatorToken.linha,
+        coluna: operatorToken.coluna,
+      };
+    }
+
+    return node;
   }
-
-  return node;
-}
 
 // Retornar um valor
 private parseReturnStatement(): ASTNode {
   const token = this.currentToken;
   this.eat(TokenType.RETORNAR);
-  let expression =null;
-  if(this.currentToken.type !== TokenType.PONTO){
+  let expression = null;
+  if (this.currentToken.type !== TokenType.PONTO) {
     // expression = this.expr();
     expression = this.logicalOr();
   }
+  if (expression) {
+    this.validateVariableType(token, expression);
+  }
   this.eat(TokenType.PONTO);
 
-   return {
+  return {
     type: "ReturnStatement",
     expression,
     linha: token.linha,
     coluna: token.coluna,
   };
 }
-// Funcao
+  // Funcao
 
-private parseFunctionParameters(): string[] {
-  const params: string[] = [];
-  if (this.currentToken.type !== TokenType.PARENTESE_DIREITO) {
-    params.push(this.currentToken.value);
+  private parseFunctionParameters(): { name: string; type: string }[] {
+    const params: { name: string; type: string }[] = [];
+
+    if (this.currentToken.type !== TokenType.PARENTESE_DIREITO) {
+      while (true) {
+        // 1. Tipo do parâmetro
+        const typeToken = this.currentToken;
+        const validTypes = [
+          TokenType.INTEIRO,
+          TokenType.REAL,
+          TokenType.NATURAL,
+          TokenType.TEXTO,
+          TokenType.LOGICO,
+          TokenType.VECTOR,
+        ];
+        if (!validTypes.includes(typeToken.type)) {
+          throw new Error(
+            this.formatError(
+              "Tipo de Parâmetro Inválido",
+              `Tipo '${typeToken.value}' não é permitido como parâmetro.`,
+              typeToken,
+            ),
+          );
+        }
+        this.eat(typeToken.type);
+
+        this.eat(TokenType.DOIS_PONTOS);
+        const nameToken = this.currentToken;
+        this.eat(TokenType.IDENTIFICADOR);
+        params.push({
+          name: nameToken.value,
+          type: typeToken.type,
+        });
+        if (this.currentToken.type === TokenType.VIRGULA) {
+          this.eat(TokenType.VIRGULA);
+        } else {
+          break;
+        }
+      }
+    }
+
+    return params;
+  }
+
+  private parseFunctionStatement(): ASTNode {
+    this.eat(TokenType.FUNCAO);
+
+    // Tipo de retorno da função
+    const typeToken = this.currentToken;
+    const validTypes = [
+      TokenType.INTEIRO,
+      TokenType.REAL,
+      TokenType.NATURAL,
+      TokenType.TEXTO,
+      TokenType.LOGICO,
+      TokenType.VAZIO, // para funções sem retorno
+    ];
+
+    if (!validTypes.includes(typeToken.type)) {
+      throw new Error(
+        this.formatError(
+          "Tipo de Retorno Inválido",
+          `Tipo '${typeToken.value}' não é permitido como retorno de função.`,
+          typeToken,
+        ),
+      );
+    }
+
+    const returnType = typeToken.type; // guarda o tipo de retorno
+    this.eat(typeToken.type); // consome o token do tipo
+
+    // Nome da função
+    const nameToken = this.currentToken;
     this.eat(TokenType.IDENTIFICADOR);
+
+    // Parâmetros
+    this.eat(TokenType.PARENTESE_ESQUERDO);
+    const params = this.parseFunctionParameters();
+    this.eat(TokenType.PARENTESE_DIREITO);
+
+    // Corpo da função
+    this.eat(TokenType.CHAVE_ESQUERDA);
+    const body = this.parseBlock(TokenType.CHAVE_DIREITA);
+    this.eat(TokenType.CHAVE_DIREITA);
+
+    // Armazena a função na tabela de símbolos
+    this.functionTable[nameToken.value] = {
+      returnType,
+      parameters: params,
+    };
+
+    return {
+      type: "FunctionDeclaration",
+      name: nameToken.value,
+      parameters: params,
+      returnType,
+      body,
+      linha: nameToken.linha,
+      coluna: nameToken.coluna,
+    };
+  }
+
+  // Detecta se é uma chamada de função
+private parseCallExpression(): ASTNode {
+  const calleeToken = this.currentToken;
+  this.eat(TokenType.IDENTIFICADOR);
+
+  this.eat(TokenType.PARENTESE_ESQUERDO);
+  const args: ASTNode[] = [];
+
+  if (this.currentToken.type !== TokenType.PARENTESE_DIREITO) {
+    args.push(this.expr());
     while (this.currentToken.type === TokenType.VIRGULA) {
       this.eat(TokenType.VIRGULA);
-      params.push(this.currentToken.value);
-      this.eat(TokenType.IDENTIFICADOR);
+      args.push(this.expr());
     }
   }
-  return params;
-}
 
-private parseFunctionStatement(): ASTNode {
-  const token = this.currentToken;
-  this.eat(TokenType.FUNCAO);
-  this.eat(TokenType.IDENTIFICADOR);
-  this.eat(TokenType.PARENTESE_ESQUERDO);
-  const params = this.parseFunctionParameters();
   this.eat(TokenType.PARENTESE_DIREITO);
-  this.eat(TokenType.CHAVE_ESQUERDA);
-  const body = this.parseBlock(TokenType.CHAVE_DIREITA);
-  this.eat(TokenType.CHAVE_DIREITA);
+
+  // Validação de argumentos
+  const func = this.functionTable[calleeToken.value];
+  if (!func) {
+    throw new Error(
+      this.formatError(
+        "Erro de Tipo",
+        `Função '${calleeToken.value}' não declarada`,
+        calleeToken,
+      ),
+    );
+  }
+
+  if (args.length !== func.parameters.length) {
+    throw new Error(
+      this.formatError(
+        "Erro de Tipo",
+        `Função '${calleeToken.value}' espera ${func.parameters.length} argumentos, recebidos ${args.length}`,
+        calleeToken,
+      ),
+    );
+  }
+
+  // Checagem de tipo de cada argumento
+  for (let i = 0; i < args.length; i++) {
+    const parameter = func.parameters[i];
+    if (!parameter) {
+      throw new Error(
+        this.formatError(
+          "Erro de Tipo",
+          `Função '${calleeToken.value}' não possui parâmetro no índice ${i}`,
+          calleeToken,
+        ),
+      );
+    }
+    const expectedType = parameter.type as TokenType;
+    const arg = args[i];
+    if (!arg) {
+      throw new Error(
+        this.formatError(
+          "Erro de Tipo",
+          `Função '${calleeToken.value}', argumento '${parameter.name}' ausente`,
+          calleeToken,
+        ),
+      );
+    }
+    try {
+      this.validateVariableType(
+        { type: expectedType, linha: calleeToken.linha, coluna: calleeToken.coluna } as Token,
+        arg,
+      );
+    } catch (err) {
+      throw new Error(
+        this.formatError(
+          "Erro de Tipo",
+          `Função '${calleeToken.value}', argumento '${parameter.name}' inválido: ${err instanceof Error ? err.message : String(err)}`,
+          calleeToken,
+        ),
+      );
+    }
+  }
 
   return {
-    type: "FunctionDeclaration",
-    name: token.value,
-    parameters: params,
-    body,
-    linha: token.linha,
-    coluna: token.coluna,
+    type: "CallExpression",
+    callee: calleeToken.value,
+    arguments: args,
+    linha: calleeToken.linha,
+    coluna: calleeToken.coluna,
   };
 }
-
 
 
   //   Análise de expressões entre parênteses
@@ -455,7 +643,7 @@ private parseFunctionStatement(): ASTNode {
       TokenType.NATURAL,
       TokenType.TEXTO,
       TokenType.LOGICO,
-      TokenType.LISTA,
+      TokenType.VECTOR,
     ];
 
     if (!validTypes.includes(varTypeToken.type)) {
@@ -588,24 +776,31 @@ private parseFunctionStatement(): ASTNode {
     };
   }
   private parsePrintArgument(): ASTNode {
+    // Se for texto literal, mantém
     if (this.currentToken.type === TokenType.TEXTO) {
       const value = this.currentToken.value;
       this.eat(TokenType.TEXTO);
       return { type: "StringLiteral", value };
     }
 
+    // Caso seja um identificador, pode ser variável ou função
     if (this.currentToken.type === TokenType.IDENTIFICADOR) {
-      const name = this.currentToken.value;
-      this.eat(TokenType.IDENTIFICADOR);
-      return {
-        type: "IDENTIFICADOR",
-        name,
-        linha: this.currentToken.linha,
-        coluna: this.currentToken.coluna,
-      };
+      const nextToken = this.lexer.peekNextToken();
+      if (nextToken.type === TokenType.PARENTESE_ESQUERDO) {
+        return this.parseCallExpression(); // reconhece chamada de função
+      } else {
+        const nameToken = this.currentToken;
+        this.eat(TokenType.IDENTIFICADOR);
+        return {
+          type: "IDENTIFICADOR",
+          name: nameToken.value,
+          linha: nameToken.linha,
+          coluna: nameToken.coluna,
+        };
+      }
     }
 
-    // opcional: permitir expressões
+    // Qualquer outra expressão (operações, números, etc.)
     return this.expr();
   }
 
@@ -1056,6 +1251,11 @@ private parseFunctionStatement(): ASTNode {
           return this.parseAssignment(true, factorNode);
         }
 
+        if (factorNode.type === "CallExpression") {
+          this.eat(TokenType.PONTO);
+          return factorNode;
+        }
+
         throw new Error(
           this.formatError(
             "Comando Inválido",
@@ -1080,7 +1280,7 @@ private parseFunctionStatement(): ASTNode {
       case TokenType.CONTINUAR:
         return this.parseContinueStatement();
 
-        case TokenType.RETORNAR:
+      case TokenType.RETORNAR:
         return this.parseReturnStatement();
       case TokenType.RAIZ:
       case TokenType.EXPOENTE:

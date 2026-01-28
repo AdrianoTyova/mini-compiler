@@ -608,9 +608,9 @@ class Lexer {
             linha: tokenInicioLinha,
             coluna: tokenInicioColuna,
           };
-        if (word === "LISTA")
+        if (word === "VECTOR")
           return {
-            type: TokenType.LISTA,
+            type: TokenType.VECTOR,
             value: word,
             linha: tokenInicioLinha,
             coluna: tokenInicioColuna,

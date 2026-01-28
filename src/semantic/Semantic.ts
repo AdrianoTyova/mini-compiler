@@ -4,17 +4,28 @@ import { execSync } from "child_process";
 import { error } from "console";
 
 interface Symbol {
-  name: string,
-  value: number | string | boolean;
-  type: "INTEIRO" | "REAL" | "NATURAL" | "TEXTO" | "LOGICO";
+  name: string;
+  value: number | string | boolean | ASTNode | null;
+  type: "INTEIRO" | "REAL" | "NATURAL" | "TEXTO" | "LOGICO" | "FUNCAO";
 }
 
+interface FunctionNode extends ASTNode {
+  type: "FunctionDeclaration";
+  name: string;
+  returnType: "INTEIRO" | "REAL" | "NATURAL" | "LOGICO" | "TEXTO" | "NULO";
+  parameters: { name: string; type: string }[];
+  body: ASTNode[];
+  linha: number;
+  coluna: number;
+}
 
 class Scope {
   private symbols = new Map<string, Symbol>();
   add(symbol: Symbol): void {
     if (this.symbols.has(symbol.name)) {
-      throw new Error(`'${symbol.name}' a variável já foi declarada neste escopo`);
+      throw new Error(
+        `'${symbol.name}' a variável já foi declarada neste escopo`,
+      );
     }
     this.symbols.set(symbol.name, symbol);
   }
@@ -31,13 +42,16 @@ class Scope {
  * Ele mantém uma tabela de símbolos para armazenar valores e tipos das variáveis.
  */
 
-class BreakSignal { }
-class ContinueSignal { }
+class BreakSignal {}
+class ContinueSignal {}
+class ReturnSignal {
+  constructor(public value: any) {}
+}
 class errorSemantic extends Error {
   constructor(
     public typeError: string,
     public details: string,
-    public node: ASTNode
+    public node: ASTNode,
   ) {
     super(details);
   }
@@ -48,22 +62,44 @@ class SemanticAnalyzer {
   private printCallback: (message: string) => void;
   private inputCallback: (prompt: string) => Promise<string>;
 
+  private globalScope: Scope = new Scope();
   private stackScopes: Scope[] = [];
   private classeRecente?: string;
   private recenteParentClasse?: string;
   private symbolDeclared = new Set<string>();
   private webOutput: string = "";
+  private currentFunction?: { name: string; returnType: string } | undefined;
 
   public getWebOutput(): string {
     return this.webOutput;
   }
 
-  private currentScope(): Scope {
-    if (this.stackScopes.length === 0) {
-      throw new Error('Erro: pilha de escopos vazia.')
+  // Valida se o tipo do valor é compatível com o tipo esperado
+  private inferType(node: ASTNode): string {
+    switch (node.type) {
+      case "NumberLiteral":
+        return node.numberType;
+      case "StringLiteral":
+        return "TEXTO";
+      case "BooleanLiteral":
+        return "LOGICO";
+      case "IDENTIFICADOR": {
+        const sym = this.currentScope().lookup(node.name);
+        if (!sym) throw new Error(`Variável não declarada: ${node.name}`);
+        return sym.type;
+      }
+      case "BinaryExpression": {
+        const left = this.inferType(node.left);
+        const right = this.inferType(node.right);
+        if (left !== right)
+          throw new Error(`Tipos incompatíveis em ${node.operator}`);
+        return left;
+      }
+      case "LogicalExpression":
+        return "LOGICO";
+      default:
+        throw new Error(`Não sei inferir tipo de ${node.type}`);
     }
-    return this.stackScopes[this.stackScopes.length - 1]!;
-
   }
 
   //Entrar em um novo escopo
@@ -73,6 +109,10 @@ class SemanticAnalyzer {
   //Sair do escopo actual
   private outScope() {
     this.stackScopes.pop();
+  }
+
+  private currentScope(): Scope {
+    return this.stackScopes[this.stackScopes.length - 1]!;
   }
 
   private symbolExistOutScope(name: string): boolean {
@@ -90,11 +130,18 @@ class SemanticAnalyzer {
       if (symbol) return symbol;
     }
     if (this.symbolDeclared.has(name)) {
-      throw new errorSemantic("A váriavel está fora do escopo!", `A váriavel '${name}' foi declarada, mas não é global e sim local.`, node);
+      throw new errorSemantic(
+        "A váriavel está fora do escopo!",
+        `A váriavel '${name}' foi declarada, mas não é global e sim local.`,
+        node,
+      );
     }
-    throw new errorSemantic("A variável não foi declarada!", `A variável '${name}' não foi declarada.`, node);
+    throw new errorSemantic(
+      "A variável não foi declarada!",
+      `A variável '${name}' não foi declarada.`,
+      node,
+    );
   }
-
 
   constructor(
     filename: string = "code.sa",
@@ -148,7 +195,8 @@ class SemanticAnalyzer {
    * Executa a lista de comandos representada pela AST.
    */
   public async execute(ast: ASTNode[]) {
-    this.enterScope();
+    // Always start with the global scope
+    this.stackScopes = [this.globalScope];
     this.webOutput = "";
     try {
       for (const node of ast) {
@@ -159,23 +207,60 @@ class SemanticAnalyzer {
       }
     } catch (er) {
       if (er instanceof errorSemantic) {
-        console.error(
-          this.formatError(er.typeError, er.details, er.node)
-        );
+        console.error(this.formatError(er.typeError, er.details, er.node));
       } else {
         throw er;
       }
     } finally {
-      this.outScope();
+      // Do not pop the global scope
+      this.stackScopes = [this.globalScope];
     }
   }
- 
+
+  private enterFunctionScope(params: { name: string; type: string }[]) {
+    // Cria um escopo novo, isolado do global
+    const newScope = new Scope();
+
+    // Adiciona parâmetros da função
+    for (const param of params) {
+      if (newScope.lookup(param.name)) {
+        throw new Error(`Parâmetro '${param.name}' já declarado na função`);
+      }
+      newScope.add({ name: param.name, type: param.type as any, value: null });
+    }
+
+    this.stackScopes.push(newScope);
+  }
+
+  private exitFunctionScope() {
+    this.stackScopes.pop();
+  }
+
+  // Verifica se a instrução de retorno está correta dentro do contexto da função
+  private checkReturnStatement(node: ASTNode) {
+    if (!this.currentFunction)
+      throw new Error(`RETORNAR fora de função (linha ${node.linha})`);
+
+    if (node.expression) {
+      const exprType = this.inferType(node.expression);
+      if (exprType !== this.currentFunction.returnType) {
+        throw new Error(
+          `Tipo de retorno inválido: esperado ${this.currentFunction.returnType}, encontrado ${exprType}`,
+        );
+      }
+    }
+  }
+
   /**
    * A função recursiva que visita cada nó da AST e executa a lógica correspondente.
    */
   private async visit(node: ASTNode): Promise<any> {
     switch (node.type) {
-      // Declaração de uma variável
+      // ==================== BLOCO DE INSTRUÇÕES ====================
+      case "BlockStatement":
+        return await this.executeBlock(node.body);
+
+      // ==================== DECLARAÇÃO DE VARIÁVEL ====================
       case "VariableDeclaration": {
         let value: any = null;
 
@@ -183,7 +268,7 @@ class SemanticAnalyzer {
           value = await this.visit(node.value);
         }
 
-        // Valores padrões
+        // Valores padrão
         if (value === null) {
           switch (node.varType) {
             case "INTEIRO":
@@ -200,73 +285,19 @@ class SemanticAnalyzer {
           }
         }
 
-        // Validação de tipo
-        switch (node.varType) {
-          case "INTEIRO":
-            if (!Number.isInteger(value))
-              throw new Error(
-                this.formatError(
-                  "Tipo Incompatível",
-                  `Valor ${value} não é compatível com INTEIRO`,
-                  node,
-                ),
-              );
-            break;
-
-          case "REAL":
-            if (typeof value !== "number")
-              throw new Error(
-                this.formatError(
-                  "Tipo Incompatível",
-                  `Valor ${value} não é compatível com REAL`,
-                  node,
-                ),
-              );
-            break;
-
-          case "NATURAL":
-            if (!Number.isInteger(value) || value < 0)
-              throw new Error(
-                this.formatError(
-                  "Tipo Incompatível",
-                  `Valor ${value} não é compatível com NATURAL`,
-                  node,
-                ),
-              );
-            break;
-
-          case "TEXTO":
-            if (typeof value !== "string")
-              throw new Error(
-                this.formatError(
-                  "Tipo Incompatível",
-                  `Valor ${value} não é compatível com TEXTO`,
-                  node,
-                ),
-              );
-            break;
-
-          case "LOGICO":
-            if (typeof value !== "boolean")
-              throw new Error(
-                this.formatError(
-                  "Tipo Incompatível",
-                  `Valor ${value} não é compatível com LOGICO`,
-                  node,
-                ),
-              );
-            break;
-        }
+        this.validateTypeCompatibility(node.varType, value, node.id, node);
 
         this.currentScope().add({
-          name: node.id, value, type: node.varType,
+          name: node.id,
+          type: node.varType,
+          value,
         });
 
         this.symbolDeclared.add(node.id);
         break;
       }
 
-      // Atribuição de valor a variável
+      // ==================== ATRIBUIÇÃO ====================
       case "Assignment": {
         const target = node.target;
         const newValue = await this.visit(node.value);
@@ -274,14 +305,7 @@ class SemanticAnalyzer {
         if (target.type === "IDENTIFICADOR" || target.type === "VAR") {
           const id = target.type === "IDENTIFICADOR" ? target.name : target.id;
           const symbol = this.lookupSymbol(id, node);
-
-          if (!symbol) {
-            throw new Error(this.formatError("Variável Não Declarada", `Variável '${id}' não foi declarada`, node));
-          }
-
-          // Validação de tipo
           this.validateTypeCompatibility(symbol.type, newValue, id, node);
-
           symbol.value = newValue;
         } else if (target.type === "IndexAccess") {
           await this.assignToIndex(target, newValue);
@@ -291,43 +315,69 @@ class SemanticAnalyzer {
         break;
       }
 
+      // ==================== UPDATE (++, --, +=, -=) ====================
       case "UpdateStatement": {
         const target = node.target;
-
         let oldValue: number;
         let symbol: any = null;
         let indexAccess: any = null;
 
         if (target.type === "IDENTIFICADOR") {
           symbol = this.lookupSymbol(target.name, node);
-          if (!symbol) {
-            throw new Error(this.formatError("Variável Não Declarada", `Variável '${target.name}' não foi declarada`, node));
-          }
-          if (symbol.type !== "INTEIRO" && symbol.type !== "REAL" && symbol.type !== "NATURAL") {
-            throw new Error(this.formatError("Erro de Tipo", `Operador '${node.operator}' só pode ser usado em tipos numéricos`, node));
-          }
           oldValue = symbol.value as number;
+          if (!["INTEIRO", "REAL", "NATURAL"].includes(symbol.type)) {
+            throw new Error(
+              this.formatError(
+                "Erro de Tipo",
+                `Operador '${node.operator}' só pode ser usado em tipos numéricos`,
+                node,
+              ),
+            );
+          }
         } else if (target.type === "IndexAccess") {
           indexAccess = await this.resolveIndexAccess(target);
-          if (typeof indexAccess.value !== "number") {
-            throw new Error(this.formatError("Erro de Tipo", `Operador '${node.operator}' só pode ser usado em valores numéricos`, node));
-          }
           oldValue = indexAccess.value;
+          if (typeof oldValue !== "number") {
+            throw new Error(
+              this.formatError(
+                "Erro de Tipo",
+                `Operador '${node.operator}' só pode ser usado em valores numéricos`,
+                node,
+              ),
+            );
+          }
         } else {
           throw new Error(`Alvo de atualização inválido: ${target.type}`);
         }
 
         let newValue: number;
         switch (node.operator) {
-          case "++": newValue = oldValue + 1; break;
-          case "--": newValue = oldValue - 1; break;
-          case "+=": newValue = oldValue + (await this.visit(node.value)); break;
-          case "-=": newValue = oldValue - (await this.visit(node.value)); break;
-          default: throw new Error(`Operador desconhecido: ${node.operator}`);
+          case "++":
+            newValue = oldValue + 1;
+            break;
+          case "--":
+            newValue = oldValue - 1;
+            break;
+          case "+=":
+            newValue = oldValue + (await this.visit(node.value));
+            break;
+          case "-=":
+            newValue = oldValue - (await this.visit(node.value));
+            break;
+          default:
+            throw new Error(`Operador desconhecido: ${node.operator}`);
         }
 
         if (symbol) {
-          if (symbol.type === "NATURAL" && newValue < 0) throw new Error(this.formatError("Erro de Tipo (NATURAL)", "Não pode ser negativo", node));
+          if (symbol.type === "NATURAL" && newValue < 0) {
+            throw new Error(
+              this.formatError(
+                "Erro de Tipo (NATURAL)",
+                "Não pode ser negativo",
+                node,
+              ),
+            );
+          }
           symbol.value = newValue;
         } else {
           indexAccess.object[indexAccess.index] = newValue;
@@ -335,6 +385,7 @@ class SemanticAnalyzer {
         break;
       }
 
+      // ==================== LISTAS ====================
       case "ListLiteral": {
         const elements = [];
         for (const element of node.elements) {
@@ -343,23 +394,17 @@ class SemanticAnalyzer {
         return elements;
       }
 
-      case "IndexAccess": {
+      case "IndexAccess":
         const resolved = await this.resolveIndexAccess(node);
         return resolved.value;
-      }
 
-      // Comando print para saída de dados
+      // ==================== PRINT ====================
       case "PrintStatement": {
         let output = "";
-
         for (const arg of node.arguments) {
           const value = await this.visit(arg);
 
-          if (
-            typeof value !== "string" &&
-            typeof value !== "number" &&
-            typeof value !== "boolean"
-          ) {
+          if (!["string", "number", "boolean"].includes(typeof value)) {
             throw new Error(
               this.formatError(
                 "Erro de Tipo",
@@ -369,311 +414,42 @@ class SemanticAnalyzer {
             );
           }
 
-          // Formatação: REAL com vírgula
-          if (typeof value === "number" && !Number.isInteger(value)) {
-            output += value.toString().replace(".", ",");
-          } else {
-            output += value.toString();
-          }
+          output +=
+            typeof value === "number" && !Number.isInteger(value)
+              ? value.toString().replace(".", ",")
+              : value.toString();
         }
-
         this.printCallback(output);
         break;
       }
 
-      // Comando EXIBIR para entrada de dados
+      // ==================== INPUT ====================
       case "InputStatement": {
         const symbol = this.lookupSymbol(node.id, node);
-
-        if (!symbol) {
-          throw new Error(
-            this.formatError(
-              "Variável Não Declarada",
-              `Variável '${node.id}' não foi declarada`,
-              node,
-            ),
-          );
-        }
-
         const msg = node.promptMessage ?? "";
-
-        let input = "";
-        input = await this.inputCallback(msg + " ");
+        const input = await this.inputCallback(msg + " ");
 
         switch (symbol.type) {
-          case "INTEIRO": {
-            if (!/^-?\d+$/.test(input)) {
-              throw new Error(
-                this.formatError(
-                  "Entrada inválida",
-                  `Esperado INTEIRO (apenas números), recebido '${input}'`,
-                  node,
-                ),
-              );
-            }
-            const v = parseInt(input, 10);
-            if (Number.isNaN(v)) {
-              throw new Error(
-                this.formatError(
-                  "Entrada inválida",
-                  `Esperado INTEIRO, recebido '${input}'`,
-                  node,
-                ),
-              );
-            }
-            symbol.value = v;
+          case "INTEIRO":
+            symbol.value = parseInt(input, 10);
             break;
-          }
-
-          case "REAL": {
-            if (!/^-?\d+(,\d+)?$/.test(input)) {
-              throw new Error(
-                this.formatError(
-                  "Entrada inválida",
-                  `Esperado REAL (use vírgula, ex: 10,5), recebido '${input}'`,
-                  node,
-                ),
-              );
-            }
-            const v = parseFloat(input.replace(",", "."));
-            if (Number.isNaN(v)) {
-              throw new Error(
-                this.formatError(
-                  "Entrada inválida",
-                  `Esperado REAL (use vírgula), recebido '${input}'`,
-                  node,
-                ),
-              );
-            }
-            symbol.value = v;
+          case "REAL":
+            symbol.value = parseFloat(input.replace(",", "."));
             break;
-          }
-
           case "TEXTO":
             symbol.value = input;
             break;
-
           case "LOGICO":
             symbol.value = input === "VERDADEIRO";
             break;
         }
-
         break;
       }
 
-      // Comando para repetições
-      case "WhileStatement": {
-        let iterations = 0;
-        const MAX_ITERATIONS = 10000;
-
-        while (await this.visit(node.condition)) {
-          this.enterScope();
-          let shouldContinue = false;
-
-          try {
-            for (const stmt of node.body) {
-              await this.visit(stmt);
-            }
-          } catch (signal) {
-            if (signal instanceof BreakSignal) {
-              break;
-            }
-
-            if (signal instanceof ContinueSignal) {
-              shouldContinue = true;
-            } else {
-              throw signal;
-            }
-          }
-          finally {
-            this.outScope();
-          }
-
-          iterations++;
-          if (iterations > MAX_ITERATIONS) {
-            throw new Error("Loop ENQUANTO excedeu 10000 iterações.");
-          }
-
-          if (shouldContinue) {
-            continue;
-          }
-        }
-
-        break;
-      }
-
-      case "ForStatement": {
-        let iterations = 0;
-        const MAX_ITERATIONS = 10000;
-
-        this.enterScope();
-
-        // Inicialização
-        await this.visit(node.init);
-        try {
-
-          while (true) {
-            // Condição
-            const cond = await this.visit(node.condition);
-            if (!cond) break;
-            this.enterScope();
-
-            // let shouldContinue = false;
-
-            try {
-              for (const stmt of node.body) {
-                await this.visit(stmt);
-              }
-            } catch (signal) {
-              if (signal instanceof BreakSignal) {
-                break;
-              }
-
-              if (signal instanceof ContinueSignal) {
-                // shouldContinue = true;
-              } else {
-                throw signal;
-              }
-            }
-            finally {
-              this.outScope();
-            }
-
-            // Incremento (SEMPRE EXECUTA)
-            await this.visit(node.increment);
-
-            iterations++;
-            if (iterations > MAX_ITERATIONS) {
-              throw new Error("Loop PARA excedeu 10000 iterações.");
-            }
-          }
-        } finally {
-          this.outScope();
-        }
-
-        break;
-      }
-
-      case "DoWhileStatement": {
-        let iterations = 0;
-        const MAX_ITERATIONS = 10000;
-
-        do {
-          this.enterScope();
-          let shouldContinue = false;
-
-          try {
-            for (const stmt of node.body) {
-              await this.visit(stmt);
-            }
-          } catch (signal) {
-            if (signal instanceof BreakSignal) {
-              break;
-            }
-
-            if (signal instanceof ContinueSignal) {
-              shouldContinue = true;
-            } else {
-              throw signal;
-            }
-          } finally {
-            this.outScope();
-          }
-
-          iterations++;
-          if (iterations > MAX_ITERATIONS) {
-            throw new Error("Loop FACA...ENQUANTO excedeu 10000 iterações.");
-          }
-
-          // continue no do...while cai aqui
-          if (shouldContinue) {
-            // não faz nada, apenas deixa cair para a condição que foi declarada no do...while
-          }
-        } while (await this.visit(node.condition));
-
-        break;
-      }
-
-      // Controle de fluxo - PARAR
-      case "BreakStatement": {
-        throw new BreakSignal();
-      }
-
-      // Controle de fluxo - CONTINUAR
-      case "ContinueStatement": {
-        throw new ContinueSignal();
-      }
-
-      // Operações matemáticas especiais
-      case "CalcStatement": {
-        const operation = node.operation; // "RAIZ" ou "EXPOENTE"
-        const args = node.arguments;
-
-        if (args.length !== 2) {
-          throw new Error(
-            `CalcStatement precisa de 2 argumentos, encontrou ${args.length}`,
-          );
-        }
-
-        // Avalia os dois argumentos
-        const arg1 = await this.visit(args[0]); // pode ser qualquer expressão
-        const arg2 = await this.visit(args[1]); // idem
-
-        let result: number;
-
-        switch (operation) {
-          case "RAIZ":
-            if (arg2 === 0)
-              throw new Error("Não é possível calcular raiz de índice zero.");
-            result = Math.pow(arg1, 1 / arg2);
-            break;
-
-          case "EXPOENTE":
-            result = Math.pow(arg1, arg2);
-            break;
-
-          default:
-            throw new Error(`Operação desconhecida: ${operation}`);
-        }
-        break;
-      }
-
-      case "WebTag":
-        return await this.visitWebTag(node);
-
-      case "ObjectLiteral":
-        return await this.visitObjectLiteral(node);
-
-      // Valor literal
-      case "NumberLiteral":
-        return node.value;
-
-      // Expressao unária
-      case "UnaryExpression":
-        const val = await this.visit(node.argument);
-        switch (node.operator) {
-          case "-":
-            return -val;
-          case "!":
-            return !val;
-          default:
-            throw new Error(`Operador unário desconhecido: ${node.operator}`);
-        }
-
-      // Texto literal
-      case "StringLiteral":
-        return node.value;
-
-      // Valor lógico
-      case "BooleanLiteral":
-        return node.value;
-
-      //
-
+      // ==================== BLOCO CONDICIONAL ====================
       case "IfStatement": {
         const cond = await this.visit(node.condition);
-
-        if (typeof cond !== "boolean") {
+        if (typeof cond !== "boolean")
           throw new Error(
             this.formatError(
               "Erro de Tipo",
@@ -681,84 +457,161 @@ class SemanticAnalyzer {
               node,
             ),
           );
-        }
 
-        if (cond) {
-          this.enterScope();        
-
-          for (const stmt of node.trueBranch) {
-            await this.visit(stmt);
-          }
-
-          this.outScope();           
-        }
-        else if (node.falseBranch) {
-          this.enterScope();
-
-          if (Array.isArray(node.falseBranch)) {
-            for (const stmt of node.falseBranch) {
-              await this.visit(stmt);
-            }
-          } else {
-            await this.visit(node.falseBranch);
-          }
-
-          this.outScope();
-        }
-
+        if (cond) await this.executeBlock(node.trueBranch);
+        else if (node.falseBranch)
+          await this.executeBlock(
+            Array.isArray(node.falseBranch)
+              ? node.falseBranch
+              : [node.falseBranch],
+          );
         break;
       }
 
-      case "LogicalExpression":
-        const l = await this.visit(node.left);
-        const r = await this.visit(node.right);
+      // ==================== LOOPS ====================
+      case "WhileStatement":
+      case "DoWhileStatement":
+      case "ForStatement": {
+        let iterations = 0;
+        const MAX_ITERATIONS = 10000;
 
-        switch (node.operator) {
-          case "==":
-            return l === r;
-          case "!=":
-            return l !== r;
-          case ">":
-            return l > r;
-          case "<":
-            return l < r;
-          case ">=":
-            return l >= r;
-          case "<=":
-            return l <= r;
-          case "E":
-            return l && r;
-          case "OU":
-            return l || r;
-        }
+        if (node.type === "ForStatement") await this.visit(node.init);
 
-      // Identificador
-      case "IDENTIFICADOR":
-        const symbol = this.lookupSymbol(node.name, node);
-        if (!symbol) {
+        do {
+          try {
+            await this.executeBlock(node.body);
+          } catch (signal) {
+            if (signal instanceof BreakSignal) break;
+            if (signal instanceof ContinueSignal) {
+              if (node.type === "ForStatement")
+                await this.visit(node.increment);
+              continue;
+            }
+            throw signal;
+          }
+
+          if (node.type === "ForStatement") await this.visit(node.increment);
+
+          if (
+            node.type === "WhileStatement" ||
+            node.type === "DoWhileStatement"
+          ) {
+            if (!(await this.visit(node.condition))) break;
+          }
+
+          iterations++;
+          if (iterations > MAX_ITERATIONS)
+            throw new Error(`Loop ${node.type} excedeu 10000 iterações.`);
+        } while (node.type !== "ForStatement");
+        break;
+      }
+
+      // ==================== BREAK / CONTINUE ====================
+      case "BreakStatement":
+        throw new BreakSignal();
+      case "ContinueStatement":
+        throw new ContinueSignal();
+
+      // ==================== RETORNAR ====================
+      case "ReturnStatement": {
+        if (!this.currentFunction)
+          throw new Error(`RETORNAR fora de função (linha ${node.linha})`);
+        const value = node.expression
+          ? await this.visit(node.expression)
+          : null;
+
+        if (this.currentFunction.returnType !== "NULO") {
+          const exprType =
+            value !== null ? this.getUserFriendlyType(value) : "NULO";
+          if (exprType !== this.currentFunction.returnType)
+            throw new Error(
+              `Tipo de retorno inválido: esperado ${this.currentFunction.returnType}, encontrado ${exprType} (linha ${node.linha})`,
+            );
+        } else if (value !== null) {
           throw new Error(
-            this.formatError(
-              "Variável Não Declarada",
-              `Variável \x1b[33m${node.name}\x1b[0m não foi declarada`,
-              node,
-            ),
+            `Função '${this.currentFunction.name}' não deve retornar valor, mas RETORNAR encontrou ${value} (linha ${node.linha})`,
           );
         }
-        return symbol.value;
 
-      // Expressão binária
-      case "BinaryExpression":
+        throw new ReturnSignal(value);
+      }
+
+      // ==================== FUNÇÕES ====================
+      case "FunctionDeclaration": {
+        this.globalScope.add({ name: node.name, type: "FUNCAO", value: node });
+        break;
+      }
+
+case "CallExpression": {
+  // Buscar a função no escopo
+  const funcSymbol = this.lookupSymbol(node.callee, node);
+  if (!funcSymbol || funcSymbol.type !== "FUNCAO")
+    throw new Error(`Função '${node.callee}' não declarada`);
+
+  const funcNode = funcSymbol.value as FunctionNode;
+
+  // Verificar quantidade de argumentos
+  if (funcNode.parameters.length !== node.arguments.length)
+    throw new Error(
+      `Função '${node.callee}' espera ${funcNode.parameters.length} argumentos, recebeu ${node.arguments.length}`,
+    );
+
+  // Definir função atual
+  this.currentFunction = {
+    name: funcNode.name,
+    returnType: funcNode.returnType,
+  };
+
+  // Criar escopo da função com os parâmetros
+  this.enterFunctionScope(funcNode.parameters);
+
+  // Atribuir valores passados nos argumentos aos parâmetros
+  for (let i = 0; i < node.arguments.length; i++) {
+    const param = funcNode.parameters[i];
+    if (!param) {
+      throw new Error(`Parâmetro na posição ${i} é indefinido na função '${funcNode.name}'`);
+    }
+    const argValue = await this.visit(node.arguments[i]);
+
+    // Pegar o símbolo do parâmetro 
+    const sym = this.currentScope().lookup(param.name)!;
+    sym.value = argValue;
+  }
+
+  let returnValue: any = null;
+  try {
+    for (const stmt of funcNode.body) {
+      try {
+        await this.visit(stmt);
+      } catch (signal) {
+        if (signal instanceof ReturnSignal) {
+          returnValue = signal.value;
+          break;
+        } else {
+          throw signal;
+        }
+      }
+    }
+  } finally {
+    this.exitFunctionScope();
+    this.currentFunction = undefined;
+  }
+
+  return returnValue;
+}
+
+
+      // ==================== EXPRESSÕES ====================
+      case "BinaryExpression": {
         const left = await this.visit(node.left);
         const right = await this.visit(node.right);
 
-        // Suporte para concatenação de strings com o operador '+'
-        if (node.operator === "+") {
-          if (typeof left === "string" || typeof right === "string") {
-            return String(left) + String(right);
-          }
-        }
+        if (
+          node.operator === "+" &&
+          (typeof left === "string" || typeof right === "string")
+        )
+          return String(left) + String(right);
 
-        // Validação de tipos: ambos devem ser números para outras operações aritméticas
         if (typeof left !== "number" || typeof right !== "number") {
           const type1 = this.getUserFriendlyType(left);
           const type2 = this.getUserFriendlyType(right);
@@ -770,16 +623,15 @@ class SemanticAnalyzer {
             ),
           );
         }
-        // Checar divisão por zero
-        if (node.operator === "/" && right === 0) {
+
+        if (node.operator === "/" && right === 0)
           throw new Error(
             this.formatError(
               "Expressão mal definida",
-              `Não é possível dividir \x1b[33m${left}\x1b[0m por \x1b[33m${right}\x1b[0m (divisão por zero)`,
+              `Não é possível dividir ${left} por ${right} (divisão por zero)`,
               node,
             ),
           );
-        }
 
         switch (node.operator) {
           case "+":
@@ -793,9 +645,118 @@ class SemanticAnalyzer {
           default:
             throw new Error(`Operador desconhecido: ${node.operator}`);
         }
+      }
+
+      case "UnaryLogicalExpression": {
+        const value = await this.visit(node.argument);
+        if (typeof value !== "boolean")
+          throw new Error(
+            this.formatError(
+              "Erro de Tipo",
+              "Operador NAO só pode ser aplicado a expressões lógicas",
+              node,
+            ),
+          );
+        return !value;
+      }
+
+      case "LogicalExpression": {
+        const left = await this.visit(node.left);
+        const right = await this.visit(node.right);
+        const op = node.operator;
+
+        if (["E", "OU"].includes(op)) {
+          if (typeof left !== "boolean")
+            throw new Error(
+              this.formatError(
+                "Erro de Tipo",
+                `Operador ${op} requer valores lógicos`,
+                node,
+              ),
+            );
+          if (op === "E" && !left) return false;
+          if (op === "OU" && left) return true;
+          if (typeof right !== "boolean")
+            throw new Error(
+              this.formatError(
+                "Erro de Tipo",
+                `Operador ${op} requer valores lógicos`,
+                node,
+              ),
+            );
+          return op === "E" ? left && right : left || right;
+        }
+
+        if (typeof left !== typeof right)
+          throw new Error(
+            this.formatError(
+              "Erro de Tipo",
+              "Comparação entre tipos incompatíveis",
+              node,
+            ),
+          );
+        switch (op) {
+          case "==":
+            return left === right;
+          case "!=":
+            return left !== right;
+          case ">":
+            return left > right;
+          case "<":
+            return left < right;
+          case ">=":
+            return left >= right;
+          case "<=":
+            return left <= right;
+        }
+        throw new Error("Operador lógico desconhecido");
+      }
+
+      case "IDENTIFICADOR":
+        return this.lookupSymbol(node.name, node).value;
+
+      case "NumberLiteral":
+        return node.value;
+      case "StringLiteral":
+        return node.value;
+      case "BooleanLiteral":
+        return node.value;
+
+      case "ListLiteral": {
+        const elements = [];
+        for (const el of node.elements) elements.push(await this.visit(el));
+        return elements;
+      }
+
+      case "ObjectLiteral":
+        return await this.visitObjectLiteral(node);
+      case "WebTag":
+        return await this.visitWebTag(node);
+      case "CalcStatement": {
+        const arg1 = await this.visit(node.arguments[0]);
+        const arg2 = await this.visit(node.arguments[1]);
+        switch (node.operation) {
+          case "RAIZ":
+            return Math.pow(arg1, 1 / arg2);
+          case "EXPOENTE":
+            return Math.pow(arg1, arg2);
+          default:
+            throw new Error(`Operação desconhecida: ${node.operation}`);
+        }
+      }
 
       default:
         return undefined;
+    }
+  }
+
+  // ==================== EXECUTAR BLOCO ====================
+  private async executeBlock(statements: ASTNode[]) {
+    this.enterScope();
+    try {
+      for (const stmt of statements) await this.visit(stmt);
+    } finally {
+      this.outScope();
     }
   }
 
@@ -812,15 +773,17 @@ class SemanticAnalyzer {
     const props = node.properties ? await this.visit(node.properties) : {};
 
     let style = "";
-    if (props.fundo) style += `background-color: ${this.cssColor(props.fundo)}; `;
+    if (props.fundo)
+      style += `background-color: ${this.cssColor(props.fundo)}; `;
     if (props.cor) style += `color: ${this.cssColor(props.cor)}; `;
     if (props.largura) style += `width: ${props.largura}; `;
     if (props.altura) style += `height: ${props.altura}; `;
     if (props.borda) style += `border: ${props.borda}; `;
     if (props.margem) style += `margin: ${props.margem}; `;
-    if (props.espacamento_interno) style += `padding: ${props.espacamento_interno}; `;
+    if (props.espacamento_interno)
+      style += `padding: ${props.espacamento_interno}; `;
     if (props.mostrar) style += `display: ${props.mostrar}; `;
-    if (props.direcao_flex) style += `flex-direction: ${props.direcao_flex}; `; 
+    if (props.direcao_flex) style += `flex-direction: ${props.direcao_flex}; `;
     if (props.justificar) style += `justify-content: ${props.justificar}; `;
     if (props.alinhar) style += `align-items: ${props.alinhar}; `;
     if (props.estilo_lista) style += `list-style: ${props.estilo_lista};`;
@@ -855,7 +818,6 @@ class SemanticAnalyzer {
       lista_ordenada: "ol",
       lista_desordenada: "ul",
       item_lista: "li",
-
     };
     return mapping[name] || name;
   }
@@ -882,7 +844,7 @@ class SemanticAnalyzer {
       verde_claro: "#81C784",
       verde_escuro: "#1B5E20",
       lima: "#CDDC39",
-      amarelo_claro:"#FFF59D",
+      amarelo_claro: "#FFF59D",
       amarelo_escuro: "#F9A825",
       laranja_claro: "#FFE0B2",
       laranja_escuro: "#E65100",
@@ -912,58 +874,127 @@ class SemanticAnalyzer {
       neve: "#FFFAFA",
       caqui: "#F0E68C",
       verde_menta: "#3EB489",
-      azul_royal: "	#4169E1"
-
+      azul_royal: "	#4169E1",
     };
     return colors[color] || color;
   }
 
+  // Converte o tipo do valor para o formato amigável do SeteAo
   private getUserFriendlyType(value: any): string {
     if (Array.isArray(value)) return "LISTA";
-    if (typeof value === "number") return "NUMERO";
+    if (typeof value === "number") {
+      return Number.isInteger(value) ? "INTEIRO" : "REAL";
+    }
     if (typeof value === "string") return "TEXTO";
     if (typeof value === "boolean") return "LOGICO";
     if (value === null) return "NULO";
-    return typeof value;
+    return "DESCONHECIDO";
   }
 
-  private validateTypeCompatibility(type: string, value: any, id: string, node: ASTNode) {
+  private validateTypeCompatibility(
+    type: string,
+    value: any,
+    id: string,
+    node: ASTNode,
+  ) {
     switch (type) {
       case "INTEIRO":
-        if (!Number.isInteger(value)) throw new Error(this.formatError("Tipo Incompatível", `Variável '${id}' espera INTEIRO`, node));
+        if (!Number.isInteger(value))
+          throw new Error(
+            this.formatError(
+              "Tipo Incompatível",
+              `Variável '${id}' espera INTEIRO`,
+              node,
+            ),
+          );
         break;
       case "REAL":
-        if (typeof value !== "number") throw new Error(this.formatError("Tipo Incompatível", `Variável '${id}' espera REAL`, node));
+        if (typeof value !== "number")
+          throw new Error(
+            this.formatError(
+              "Tipo Incompatível",
+              `Variável '${id}' espera REAL`,
+              node,
+            ),
+          );
         break;
       case "NATURAL":
-        if (!Number.isInteger(value) || value < 0) throw new Error(this.formatError("Tipo Incompatível", `Variável '${id}' espera NATURAL`, node));
+        if (!Number.isInteger(value) || value < 0)
+          throw new Error(
+            this.formatError(
+              "Tipo Incompatível",
+              `Variável '${id}' espera NATURAL`,
+              node,
+            ),
+          );
         break;
       case "TEXTO":
-        if (typeof value !== "string") throw new Error(this.formatError("Tipo Incompatível", `Variável '${id}' espera TEXTO`, node));
+        if (typeof value !== "string")
+          throw new Error(
+            this.formatError(
+              "Tipo Incompatível",
+              `Variável '${id}' espera TEXTO`,
+              node,
+            ),
+          );
         break;
       case "LOGICO":
-        if (typeof value !== "boolean") throw new Error(this.formatError("Tipo Incompatível", `Variável '${id}' espera LOGICO`, node));
+        if (typeof value !== "boolean")
+          throw new Error(
+            this.formatError(
+              "Tipo Incompatível",
+              `Variável '${id}' espera LOGICO`,
+              node,
+            ),
+          );
         break;
       case "LISTA":
-        if (!Array.isArray(value)) throw new Error(this.formatError("Tipo Incompatível", `Variável '${id}' espera LISTA`, node));
+        if (!Array.isArray(value))
+          throw new Error(
+            this.formatError(
+              "Tipo Incompatível",
+              `Variável '${id}' espera LISTA`,
+              node,
+            ),
+          );
         break;
     }
   }
 
-  private async resolveIndexAccess(node: ASTNode): Promise<{ object: any, index: number, value: any }> {
+  private async resolveIndexAccess(
+    node: ASTNode,
+  ): Promise<{ object: any; index: number; value: any }> {
     const object = await this.visit(node.object);
     const index = await this.visit(node.index);
 
     if (!Array.isArray(object)) {
-      throw new Error(this.formatError("Erro de Tipo", "Tentativa de acessar índice em algo que não é uma LISTA", node));
+      throw new Error(
+        this.formatError(
+          "Erro de Tipo",
+          "Tentativa de acessar índice em algo que não é uma LISTA",
+          node,
+        ),
+      );
     }
 
     if (!Number.isInteger(index)) {
-      throw new Error(this.formatError("Erro de Índice", "Índice deve ser um número INTEIRO", node));
+      throw new Error(
+        this.formatError(
+          "Erro de Índice",
+          "Índice deve ser um número INTEIRO",
+          node,
+        ),
+      );
     }
 
     if (index < 0 || index >= object.length) {
-      throw new Error(this.formatError("Erro de Índice", `Índice ${index} fora dos limites da lista (tamanho ${object.length})`, node));
+      throw new Error(
+        this.formatError(
+          "Erro de Índice",
+          `Índice ${index} fora dos limites da lista (tamanho ${object.length})`,
+          node,
+        ),
+      );
     }
 
     return { object, index, value: object[index] };

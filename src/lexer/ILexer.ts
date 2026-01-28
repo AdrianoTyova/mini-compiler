@@ -24,7 +24,7 @@ enum TokenType {
   NATURAL = "NATURAL", // Tipo de dado natural (não negativo)
   REAL = "REAL", // Tipo de dado real (PONTO flutuante)
   TEXTO = "TEXTO", // Tipo de dado texto (string)
-  LISTA = "LISTA", // Tipo de dado lista (array)
+  VECTOR = "VECTOR", // Tipo de dado lista (array)
   CARACTER = "CARACTER", // Tipo de dado caracter (char)
 
   // lOGICOS
@@ -89,6 +89,7 @@ enum TokenType {
   // Funcões
   FUNCAO = "FUNCAO", // Palavra-chave 'FUNCAO'
   RETORNAR = "RETORNAR", // Palavra-chave 'RETORNAR'
+  VAZIO = "VAZIO", // Tipo de retorno vazio
 }
 
 
