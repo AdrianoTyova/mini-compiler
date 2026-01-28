@@ -23,3 +23,5 @@ PARA(VAR j = 0: INTEIRO; j <= 10; j = j + 1) {
     VAR AC = j : INTEIRO.
     EXIBIR(AC).
 }
+
+EXIBIR(AC).
