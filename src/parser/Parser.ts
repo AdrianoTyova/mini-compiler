@@ -921,8 +921,8 @@ class Parser {
 
     if (this.currentToken.type !== TokenType.COLCHETE_DIREITO) {
       elements.push(this.expr());
-      while (this.currentToken.type === TokenType.VIRGULA) {
-        this.eat(TokenType.VIRGULA);
+      while (this.currentToken.type === TokenType.PONTO_E_VIRGULA) {
+        this.eat(TokenType.PONTO_E_VIRGULA);
         elements.push(this.expr());
       }
     }

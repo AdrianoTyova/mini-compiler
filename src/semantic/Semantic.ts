@@ -5,8 +5,8 @@ import { error } from "console";
 
 interface Symbol {
   name: string;
-  value: number | string | boolean | ASTNode | null;
-  type: "INTEIRO" | "REAL" | "NATURAL" | "TEXTO" | "LOGICO" | "FUNCAO";
+  value: number | string | boolean | ASTNode | null | any[];
+  type: "INTEIRO" | "REAL" | "NATURAL" | "TEXTO" | "LOGICO" | "FUNCAO"| "VECTOR";
 }
 
 interface FunctionNode extends ASTNode {
@@ -405,11 +405,11 @@ class SemanticAnalyzer {
         for (const arg of node.arguments) {
           const value = await this.visit(arg);
 
-          if (!["string", "number", "boolean"].includes(typeof value)) {
+          if (!["string", "number", "boolean", "object"].includes(typeof value)) {
             throw new Error(
               this.formatError(
                 "Erro de Tipo",
-                "EXIBIR aceita apenas TEXTO, NUMERO ou LOGICO",
+                "EXIBIR aceita apenas TEXTO, NUMERO, LOGICO PU VECTOR ",
                 node,
               ),
             );
@@ -437,6 +437,7 @@ class SemanticAnalyzer {
           case "REAL":
             symbol.value = parseFloat(input.replace(",", "."));
             break;
+          case  "VECTOR":
           case "TEXTO":
             symbol.value = input;
             break;
@@ -961,7 +962,7 @@ class SemanticAnalyzer {
 
   // Converte o tipo do valor para o formato amigável do SeteAo
   private getUserFriendlyType(value: any): string {
-    if (Array.isArray(value)) return "LISTA";
+    if (Array.isArray(value)) return "VECTOR";
     if (typeof value === "number") {
       return Number.isInteger(value) ? "INTEIRO" : "REAL";
     }
@@ -1028,12 +1029,12 @@ class SemanticAnalyzer {
             ),
           );
         break;
-      case "LISTA":
+      case "VECTOR":
         if (!Array.isArray(value))
           throw new Error(
             this.formatError(
               "Tipo Incompatível",
-              `Variável '${id}' espera LISTA`,
+              `Variável '${id}' espera VECTOR`,
               node,
             ),
           );
@@ -1051,7 +1052,7 @@ class SemanticAnalyzer {
       throw new Error(
         this.formatError(
           "Erro de Tipo",
-          "Tentativa de acessar índice em algo que não é uma LISTA",
+          "Tentativa de acessar índice em algo que não é um vector",
           node,
         ),
       );
@@ -1071,7 +1072,7 @@ class SemanticAnalyzer {
       throw new Error(
         this.formatError(
           "Erro de Índice",
-          `Índice ${index} fora dos limites da lista (tamanho ${object.length})`,
+          `Índice ${index} fora dos limites do vector (tamanho ${object.length})`,
           node,
         ),
       );
