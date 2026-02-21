@@ -21,7 +21,7 @@ enum TokenType {
 
   // Variáveis de tipo
   INTEIRO = "INTEIRO", // Tipo de dado inteiro
-  NATURAL = "NATURAL", // Tipo de dado natural (não negativo)
+  NATURAL = "NATURAL", // Tipo de dado natural (não negativo) 
   REAL = "REAL", // Tipo de dado real (PONTO flutuante)
   TEXTO = "TEXTO", // Tipo de dado texto (string)
   VECTOR = "VECTOR", // Tipo de dado lista (array)

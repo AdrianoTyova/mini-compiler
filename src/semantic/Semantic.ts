@@ -131,7 +131,7 @@ class SemanticAnalyzer {
     }
     if (this.symbolDeclared.has(name)) {
       throw new errorSemantic(
-        "A váriavel está fora do escopo!",
+        "A váriavel está fora do escopo local",
         `A váriavel '${name}' foi declarada, mas não é global e sim local.`,
         node,
       );
@@ -867,6 +867,7 @@ class SemanticAnalyzer {
     if (props.justificar) style += `justify-content: ${props.justificar}; `;
     if (props.alinhar) style += `align-items: ${props.alinhar}; `;
     if (props.estilo_lista) style += `list-style: ${props.estilo_lista};`;
+    if (props.alinhar_texto) style += `text-align: ${props.alinhar_texto};`;
 
     if (node.tagName === "bloco") {
       style += "display: block; ";
