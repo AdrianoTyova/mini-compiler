@@ -1,5 +1,6 @@
 
 VAR i: INTEIRO.
+VAR j: INTEIRO.
 
 PARA(i = 0; i < 10; i = i + 1) {
     SE(i == 3) {
@@ -28,4 +29,20 @@ PARA(VAR j = 0: INTEIRO; j <= 10; j = j + 1) {
 }
 
 EXIBIR(AC).
+i=0.
+ENQUANTO(i <= 10) {
+    VAR  j : INTEIRO.
+    VAR AC = i : INTEIRO.
+    EXIBIR(AC).
+    i++.
+}
 
+
+i=0.
+FACA{
+    VAR  j : INTEIRO.
+    VAR AC = i : INTEIRO.
+    EXIBIR(AC).
+    i++.
+}
+ENQUANTO(i <= 10).
