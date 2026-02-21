@@ -1,0 +1,49 @@
+{
+  "name": "sa",
+  "publisher": "Jandiramend",
+  "displayName": "SeteAO",
+  "description": "Suporte oficial à linguagem SeteAO (.sa) com destaque de sintaxe e verificação automática usando compilador em TypeScript (Pamdu-Ali).",
+  "version": "0.1.3",
+  "icon": "imagem/pamdu-ali.png",
+  "engines": {
+    "vscode": "^1.109.0"
+  },
+  "repository":{
+    "type": "git",
+    "url": "https://github.com/Jandira-Mendonca2"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+    "activationEvents": [
+    "onLanguage:seteao"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "seteao",
+        "aliases": ["SeteAO", "seteao"],
+        "extensions": [".sa"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "seteao",
+        "scopeName": "source.seteao",
+        "path": "./syntaxes/seteao.tmLanguage.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "sa.helloWorld",
+        "title": "SeteAO: Hello World"
+      },
+      {
+    "command": "seteao.run",
+    "title": "SeteAO: Executar Compilador"
+   }
+    ]
+  }
+}
