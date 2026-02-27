@@ -869,6 +869,8 @@ class SemanticAnalyzer {
     if (props.alinhar) style += `align-items: ${props.alinhar}; `;
     if (props.estilo_lista) style += `list-style: ${props.estilo_lista};`;
     if (props.alinhar_texto) style += `text-align: ${props.alinhar_texto};`;
+    if (props.alinhar_texto) style += `text-align: ${props.alinhar_texto};`;
+    if (props.alinhar_texto) style += `text-align: ${props.alinhar_texto};`;
 
     if (node.tagName === "bloco") {
       style += "display: block; ";
@@ -900,6 +902,29 @@ class SemanticAnalyzer {
       lista_ordenada: "ol",
       lista_desordenada: "ul",
       item_lista: "li",
+      corpo: "body",
+      formulario: "form",
+      super_link: "a",
+      link: "link",
+      linha_horizontal: "hr",
+      quebra_linha: "br",
+      html: "html",
+      seccao: "section",
+      inserir: "input",
+      tabela: "table",
+      corpo_tabela: "tbody",
+      cabecalho_tabela: "thead",
+      area_texto: "textarea",
+      rodape_tabela: "tfoot",
+      linha_tabela: "tr",
+      seleccionar: "select",
+      opcao: "option",
+      rodape: "footer",
+      navegacao: "nav",
+      ct: "th",
+      celula_tabela: "td"
+
+
     };
     return mapping[name] || name;
   }
